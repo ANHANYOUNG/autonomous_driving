@@ -80,6 +80,23 @@ def generate_launch_description():
     #     executable='motor_cmd_vel_trx.py',
     #     name='motor_driver'
     # )
+    app_wifi_rx_node = Node(
+        package='ros2_autonomous_driving_application',
+        executable='app_wifi_rx.py',
+        name='app_wifi_receiver_node',
+        output='screen',
+        parameters=[{'port': 8889},   # 수신 포트
+                    {'host': '0.0.0.0'},]  # 수신 호스트
+    )
+
+    app_wifi_tx_node = Node(
+        package='ros2_autonomous_driving_application',
+        executable='app_wifi_tx.py',
+        name='app_wifi_transmitter_node',
+        output='screen',
+        parameters=[{'port': 8888},   # 송신 포트
+                    {'host': '0.0.0.0'},]  # 송신 호스트
+    )
 
 
     return LaunchDescription([
@@ -92,4 +109,6 @@ def generate_launch_description():
         # imu_node,
         # uwb_node,
         # motor_driver_node,
+        app_wifi_rx_node,
+        app_wifi_tx_node,
     ])
