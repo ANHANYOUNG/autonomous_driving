@@ -55,15 +55,15 @@
 #                                   1e-3, 1e-3, 1e-3, 
 #                                   1.0, 1.0, 1.0]
 
-# # ----------------------------------------------------------------------------------- #
-# #                             ekf_global: 전역 EKF 설정                               #
-# # ----------------------------------------------------------------------------------- #
-# # 목적: GPS와 IMU 데이터를 융합하여 오차 누적이 없는 절대적인 위치(map -> odom)를 추정합니다.
-# # 특징: GPS 신호가 튈 때 약간씩 흔들릴 수 있지만, 장기적으로 정확한 위치를 유지하여 로컬 EKF의 오차 누적을 보정해줍니다.
+# ----------------------------------------------------------------------------------- #
+#                             ekf_global: 전역 EKF 설정                               #
+# ----------------------------------------------------------------------------------- #
+# 목적: GPS와 IMU 데이터를 융합하여 오차 누적이 없는 절대적인 위치(map -> odom)를 추정합니다.
+# 특징: GPS 신호가 튈 때 약간씩 흔들릴 수 있지만, 장기적으로 정확한 위치를 유지하여 로컬 EKF의 오차 누적을 보정해줍니다.
 # ekf_global:
 #   ros__parameters:
 #     frequency: 100.0
-#     sensor_timeout: 1.0
+#     sensor_timeout: 0.5
 #     two_d_mode: true              # 2D 모드. true로 하면 Z축 위치, roll/pitch 각도 및 관련 속도/가속도를 모두 0으로 고정합니다.
 #     publish_tf: true
 
@@ -73,8 +73,8 @@
 #     base_link_frame: chassis_link
 #     world_frame: map              # 이 필터의 월드 프레임은 'map'. 즉, map -> odom 변환을 최종적으로 계산합니다.
 
-#     # # --- 센서 입력 설정 (GPS Odometry + IMU) ---
-#     # # odom0: navsat_transform_node가 GPS 데이터를 변환해준 'odometry/gps' 토픽을 사용합니다.
+#     # --- 센서 입력 설정 (GPS Odometry + IMU) ---
+#     # odom0: navsat_transform_node가 GPS 데이터를 변환해준 'odometry/gps' 토픽을 사용합니다.
 #     # odom0: odometry/gps
     
 #     # # odom0_config: GPS에서는 절대적인 X, Y 위치 정보만 사용합니다.
@@ -167,9 +167,9 @@
 ekf_single:
   ros__parameters:
     # 기본 루프/타임아웃
-    frequency: 100.0                 # 30~100Hz 아무거나 ok (IMU 속도에 맞춰 조정)
-    sensor_timeout: 0.5             # /abs_xy가 4Hz라면 0.4~0.5s 권장
-    two_d_mode: true
+    frequency: 100.0               # 30~100Hz 아무거나 ok (IMU 속도에 맞춰 조정)
+    sensor_timeout: 0.5           # /abs_xy가 4Hz라면 0.4~0.5s 권장
+    two_d_mode: false
     publish_tf: true                # map -> chassis_link 퍼블리시
 
     # 프레임
@@ -193,7 +193,9 @@ ekf_single:
 
     # -------- IMU 입력 --------
     # /imu/data: sensor_msgs/Imu (header.frame_id = imu_link)
-    imu0: /imu/data
+    # gazebo = /imu
+    # real = /imu/data
+    imu0: /imu
     imu0_config: [false,false,false,      # 위치는 IMU에서 사용 안 함
                   true, true, true,       # roll,pitch,yaw (자세)
                   false,false,false,      # 선속도는 IMU에서 사용 안 함

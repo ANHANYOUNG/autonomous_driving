@@ -155,5 +155,5 @@ def generate_launch_description():
         ### uwb_publisher_dummy_node,
         app_wifi_rx_node,
         app_wifi_tx_node,
-        # motor_cmd_vel_trx_node,
+        motor_cmd_vel_trx_node,
     ])

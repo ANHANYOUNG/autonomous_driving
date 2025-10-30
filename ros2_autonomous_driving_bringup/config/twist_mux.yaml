@@ -3,16 +3,16 @@ twist_mux:
     use_stamped: false
     topics:
       safety_stop:
-        topic   : cmd_vel_stop
+        topic   : /cmd_vel_stop
         timeout : 0.5
         priority: 50
       teleop:
-        topic   : cmd_vel
+        topic   : /cmd_vel
         timeout : 0.5
         priority: 30
       pure_pursuit:
-        topic   : cmd_vel_ppc
+        topic   : /cmd_vel_ppc
         timeout : 0.5
         priority: 20
-    output_topic: cmd_vel_out 
+    output_topic: /cmd_vel_out 
 

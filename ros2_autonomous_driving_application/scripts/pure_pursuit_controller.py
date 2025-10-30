@@ -16,11 +16,13 @@ from sensor_msgs.msg import MagneticField
 from geometry_msgs.msg import Vector3
 from rosgraph_msgs.msg import Clock
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from std_msgs.msg import Bool
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
 class PurePursuitNode(Node):
     def __init__(self):
         super().__init__('pure_pursuit_node')
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 1)
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_ppc', 10)
 
         self.dt_gps = 0.1
         self.gps_sub = self.create_subscription(NavSatFix, '/navsat', self.gps_callback, 1)
@@ -35,8 +37,26 @@ class PurePursuitNode(Node):
         self.dt_timer = 0.1
         self.timer = self.create_timer(self.dt_timer, self.timer_callback)
 
-        self.global_odom_sub = self.create_subscription(Odometry, '/odometry/global', self.global_odom_callback, 1)
-        self.local_odom_sub = self.create_subscription(Odometry, '/odometry/local', self.local_odom_callback, 1)
+        self.global_odom_sub = self.create_subscription(Odometry, '/odometry/ekf_single', self.global_odom_callback, 1)
+        # self.local_odom_sub = self.create_subscription(Odometry, '/odometry/local', self.local_odom_callback, 1)
+        
+        # ppc enable
+        state_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+        self.ppc_enable_sub = self.create_subscription(
+            Bool, 
+            '/ppc/enable', 
+            self.ppc_enable_callback, 
+            state_qos # QoS 적용
+        )
+        # 활성화 상태 변수
+        self.is_enabled = False 
+        # 정지 명령용 Twist
+        self.zero_twist = Twist()
 
         # 예시 경로점
         self.waypoints = [(-9, 3.75), 
@@ -97,7 +117,19 @@ class PurePursuitNode(Node):
         self.rotate_flag = 0
         self.state = "move"  # "move" 또는 "rotate"
 
-
+    def ppc_enable_callback(self, msg: Bool):
+        """PPC 활성화/비활성화 상태를 수신하고 즉각적인 조치를 취합니다."""
+        
+        # 상태가 변경될 때만 로그 출력
+        if self.is_enabled != msg.data:
+            if msg.data:
+                self.get_logger().info('Pure Pursuit [ENABLED]')
+            else:
+                # 비활성화되는 즉시 0 속도를 1회 발행
+                # (twist_mux가 이 토픽을 timeout 처리할 때까지 기다리지 않도록)
+                self.cmd_pub.publish(self.zero_twist)
+                
+        self.is_enabled = msg.data
     def gps_callback(self, msg):
         lon = msg.longitude
         lat = msg.latitude
@@ -320,13 +352,13 @@ class PurePursuitNode(Node):
                         twist.linear.x = 0.3
                         twist.angular.z = twist.linear.x * curvature
 
-                    self.get_logger().info(
-                        f"Current: x={x:.2f}, y={y:.2f}, yaw={math.degrees(yaw):.1f} deg | "
-                        f"Target: x={lookahead_point[0]:.2f}, y={lookahead_point[1]:.2f} | "
-                        f"Curvature: {curvature:.4f} | "
-                        f"Waypoint idx: {self.lookahead_idx}, dist: {min_dist:.4f} | "
-                        f"cnt: {(self.clock_cnt - self.imu_cnt):.4f}, {self.clock_cnt:.4f}/{self.imu_cnt:.4f} | "
-                    )
+                    # self.get_logger().info(
+                    #     f"Current: x={x:.2f}, y={y:.2f}, yaw={math.degrees(yaw):.1f} deg | "
+                    #     f"Target: x={lookahead_point[0]:.2f}, y={lookahead_point[1]:.2f} | "
+                    #     f"Curvature: {curvature:.4f} | "
+                    #     f"Waypoint idx: {self.lookahead_idx}, dist: {min_dist:.4f} | "
+                    #     f"cnt: {(self.clock_cnt - self.imu_cnt):.4f}, {self.clock_cnt:.4f}/{self.imu_cnt:.4f} | "
+                    # )
 
                 elif self.state == "rotate":
                     # 가장 가까운 waypoint(시작점 제외)를 찾음
