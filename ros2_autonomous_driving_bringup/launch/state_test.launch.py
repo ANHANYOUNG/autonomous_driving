@@ -19,6 +19,8 @@ def generate_launch_description():
 
     ### --- 1. use_sim_time 런치 인자 선언 --- ###
     # 시뮬레이션 <-> 실제 로봇 전환 시 여기만 'true' 또는 'false'로 변경
+    # 시뮬레이션: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=true
+    # 실제 로봇: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=false
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
         default_value='true',  # ★★★ 여기만 수정하세요 ★★★
@@ -114,9 +116,7 @@ def generate_launch_description():
         ]
     )
 
-    # # 7. 실제 센서 및 드라이버 노드들 (실제 로봇 사용 시 주석 해제)
-    # imu_node = Node(...)
-    # uwb_node = Node(...)    
+    # # 7. 실제 센서 및 드라이버 노드들
     motor_cmd_vel_trx_node = Node(
         package='ros2_autonomous_driving_application',
         executable='motor_cmd_vel_trx_v2.py',
@@ -135,21 +135,81 @@ def generate_launch_description():
         ] # 'use_sim_time' 변수 사용
     )
 
+    uwb_publisher_node = Node(
+        package='ros2_autonomous_driving_application',
+        executable='uwb_publisher.py',
+        name='uwb_publisher_node',
+        output='screen'
+    )
+
+    uwb_data_wifi_out = Node(
+        package='ros2_autonomous_driving_application',
+        executable='uwb_data_wifi_out.py',
+        name='uwb_data_wifi_out',
+        output='screen',
+        parameters=[{'port': 8888},
+                    {'max_clients': 5},]  # 8888번 포트 사용
+    )
+
+    imu_node = Node(
+        package='ros2_autonomous_driving_application',
+        executable='imu.py',
+        name='wt901c_imu_node',
+        output='screen'
+    )
+
+    static_imu_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="tf_imu_to_base",
+        arguments=["0", "0", "0", "0", "0", "0", "chassis_link", "imu_link"],
+        output="screen",
+    )
+
+    # odom -> chassis_link (고정 좌표 변환), 에러로 인해 추가함.
+    static_odom_to_chassis = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='odom_to_chassis_static',
+        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'chassis_link']
+    )
+
+    uwb_publisher_dummy_node = Node(
+        package='ros2_autonomous_driving_application',
+        executable='uwb_publisher_dummy.py',
+        name='uwb_publisher_dummy_node',
+        output='screen',
+        parameters=[{'tag_x': 5.0},   # 태그 x 좌표
+                    {'tag_y': 10.0},  # 태그 y 좌표
+                    {'publish_rate': 1.0},]  # 발행 주기 (Hz)
+    )
+
     return LaunchDescription([
         ### --- 4. 런치 인자를 실행 목록에 추가 --- ###
         use_sim_time_arg,
         
         # --- 노드 실행 목록 ---
+        # 속도 선택
         twist_mux_node,
+        # 칼만 필터
         ekf_single_node,
+        # 상태 머신
         state_manager_node,
         state_machine_node,
+        # 어플 연동
         app_bridge_node,
-        pure_pursuit_node,
-        # imu_node,
-        # uwb_node,
         app_wifi_rx_node,
         app_wifi_tx_node,
+        # 주행 제어
+        pure_pursuit_node,
         motor_cmd_vel_trx_node,
-        imu_offset_node
+        # # 센서
+        imu_offset_node,
+        # uwb_publisher_node,
+        # uwb_data_wifi_out,
+        # imu_node,
+        # uwb_publisher_dummy_node,
+        # # TF 고정 변환
+        # static_imu_tf,
+        # static_odom_to_chassis,
     ])

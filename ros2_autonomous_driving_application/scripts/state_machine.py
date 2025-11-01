@@ -41,7 +41,7 @@ class StateMachineExecutor(Node):
         self.create_subscription(String, '/robot_state', self.state_callback, 10)
 
         # Calibration I/O
-        self.cal_pub = self.create_publisher(Twist, '/cmd_vel_cal', 10)
+        self.cal_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.command_pub = self.create_publisher(String, '/state_command', 10)
         self.odom_sub = self.create_subscription(Odometry, '/odometry/ekf_single', self.odom_callback, 10)
         self.imu_offset_pub = self.create_publisher(Float64, '/yaw_offset', 10)
@@ -83,7 +83,7 @@ class StateMachineExecutor(Node):
         self.align_target_yaw = 0.0
         self.align_linear_speed = 0.3
         self.align_angular_speed = 0.2
-        self.align_yaw_threshold = 0.05
+        self.align_yaw_threshold = 0.01 # 약 0.57도
         
         # 타이머 (마지막에 생성)
         self.publish_timer = self.create_timer(0.1, self.state_machine_loop)
