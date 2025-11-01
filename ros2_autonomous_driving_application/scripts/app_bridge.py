@@ -32,13 +32,8 @@ class AppBridge(Node):
         self.create_subscription(String, '/app/key_bits', self.key_bits_callback, 10)
         
         # [신규] state_manager가 발행하는 마스터 상태를 구독합니다.
-        state_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1
-        )
-        self.create_subscription(String, '/robot_state', self.robot_state_callback, state_qos)
+
+        self.create_subscription(String, '/robot_state', self.robot_state_callback, 10)
 
         # 4. 내부 상태 및 중복 발행 방지 변수
         self.last_mode_command = None

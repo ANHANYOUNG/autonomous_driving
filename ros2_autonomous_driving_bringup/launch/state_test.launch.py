@@ -46,7 +46,9 @@ def generate_launch_description():
         output="screen",
         parameters=[
             ekf_config,
-            {'use_sim_time': use_sim_time} # 'use_sim_time' 변수 사용
+            {'use_sim_time': use_sim_time}, # 'use_sim_time' 변수 사용
+            {'print_diagnostics': True},     # 추가!
+
         ],
         remappings=[
             ('odometry/filtered', 'odometry/ekf_single')
@@ -123,6 +125,15 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}
         ] # 'use_sim_time' 변수 사용
     )
+    # CAL 결과를 사용한 imu offset node
+    imu_offset_node = Node(
+        package='ros2_autonomous_driving_application',
+        executable='imu_offset.py',
+        name='imu_offset_node',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time}
+        ] # 'use_sim_time' 변수 사용
+    )
 
     return LaunchDescription([
         ### --- 4. 런치 인자를 실행 목록에 추가 --- ###
@@ -140,4 +151,5 @@ def generate_launch_description():
         app_wifi_rx_node,
         app_wifi_tx_node,
         motor_cmd_vel_trx_node,
+        imu_offset_node
     ])

@@ -21,17 +21,11 @@ class StateManager(Node):
         self.state = self.get_parameter('initial_state').get_parameter_value().string_value
 
         # 2. 발행 (Publication)
-        state_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1
-        )
-        self.state_pub = self.create_publisher(String, '/robot_state', state_qos)
+        self.state_pub = self.create_publisher(String, '/robot_state', 10)
         
         # 3. 구독 (Subscriptions)
         self.create_subscription(String, '/state_command', self.command_callback, 10)
-        # self.create_subscription(Twist, '/cmd_vel', self.KEY_override_callback, 10)
+
 
         # 4. 초기 상태 발행 및 주기적 발행 타이머
         self.get_logger().info(f'Initial state set to: {self.state}')
@@ -71,14 +65,6 @@ class StateManager(Node):
         elif command == 'ALIGN':
             self._update_state('ALIGN')
             return
-
-
-
-    # # 수동 조작 감지
-    # def KEY_override_callback(self, msg):
-    #     if self.state in ['RUN', 'CALIBRATION', 'ALIGN']:
-    #         self.get_logger().warn(f'KEY override detected in {self.state} state! Switching to KEY mode.')
-    #         self._update_state('KEY')
 
     # robot_state 토픽을 주기적으로 발행
     def publish_state_loop(self):

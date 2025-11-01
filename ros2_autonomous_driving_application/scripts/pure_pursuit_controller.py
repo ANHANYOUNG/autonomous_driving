@@ -41,18 +41,8 @@ class PurePursuitNode(Node):
         # self.local_odom_sub = self.create_subscription(Odometry, '/odometry/local', self.local_odom_callback, 1)
         
         # ppc enable
-        state_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1
-        )
-        self.ppc_enable_sub = self.create_subscription(
-            Bool, 
-            '/ppc/enable', 
-            self.ppc_enable_callback, 
-            state_qos # QoS 적용
-        )
+
+        self.ppc_enable_sub = self.create_subscription(Bool, '/ppc/enable', self.ppc_enable_callback, 10)
         # 활성화 상태 변수
         self.is_enabled = False 
         # 정지 명령용 Twist
@@ -260,6 +250,9 @@ class PurePursuitNode(Node):
     
 
     def timer_callback(self):
+        if not self.is_enabled:
+            self.cmd_pub.publish(self.zero_twist)
+            return
         twist = Twist()
         # GPS/IMU 기반 위치와 자세가 모두 들어온 경우에만 동작
         if self.global_x is not None and self.global_y is not None and self.global_yaw is not None:

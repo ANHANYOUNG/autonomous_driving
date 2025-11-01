@@ -169,7 +169,7 @@ ekf_single:
     # 기본 루프/타임아웃
     frequency: 100.0               # 30~100Hz 아무거나 ok (IMU 속도에 맞춰 조정)
     sensor_timeout: 0.5           # /abs_xy가 4Hz라면 0.4~0.5s 권장
-    two_d_mode: false
+    two_d_mode: true # 발산 위험 감소
     publish_tf: true                # map -> chassis_link 퍼블리시
 
     # 프레임
@@ -195,7 +195,7 @@ ekf_single:
     # /imu/data: sensor_msgs/Imu (header.frame_id = imu_link)
     # gazebo = /imu
     # real = /imu/data
-    imu0: /imu
+    imu0: /imu_cal
     imu0_config: [false,false,false,      # 위치는 IMU에서 사용 안 함
                   true, true, true,       # roll,pitch,yaw (자세)
                   false,false,false,      # 선속도는 IMU에서 사용 안 함
@@ -211,15 +211,26 @@ ekf_single:
     publish_acceleration: false
 
     # -------- 공정/초기 공분산 (예시값) --------
-    process_noise_covariance: [0.1, 0.1, 0.1,
-                               0.1, 0.1, 0.05,
-                               1.0, 1.0, 1.0,
-                               0.5, 0.5, 0.5,
-                               5.0, 5.0, 5.0]
-
-    initial_estimate_covariance: [1.0, 1.0, 1.0,
-                                  1e-3, 1e-3, 1e-3,
-                                  1.0, 1.0, 1.0,
-                                  1e-3, 1e-3, 1e-3,
+    # process_noise_covariance: [0.1, 0.1, 0.1,
+    #                            0.1, 0.1, 0.05,
+    #                            1.0, 1.0, 1.0,
+    #                            0.5, 0.5, 0.5,
+    #                            5.0, 5.0, 5.0]
+    process_noise_covariance: [1.0, 1.0, 1e-3, 
+                              0.3, 0.3, 0.01, 
+                              0.5, 0.5, 0.1, 
+                              0.3, 0.3, 0.3, 
+                              0.3, 0.3, 0.3]
+   
+    # initial_estimate_covariance: [1.0, 1.0, 1.0,
+    #                               1e-3, 1e-3, 1e-3,
+    #                               1.0, 1.0, 1.0,
+    #                               1e-3, 1e-3, 1e-3,
+    #                               1.0, 1.0, 1.0]
+    initial_estimate_covariance: [1.0, 1.0, 1e-9,
+                                  1.0, 1.0, 1e-9, 
+                                  1.0, 1.0, 1.0, 
+                                  1.0, 1.0, 1.0, 
                                   1.0, 1.0, 1.0]
+
 

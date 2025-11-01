@@ -24,10 +24,10 @@ class MotorCmdVelTrx(Node):
         # --- [수정된 부분 시작] ---
         
         # [신규] 로봇 기구학(Kinematics) 파라미터 (무한궤도형)
-        self.declare_parameter('wheel_radius', 0.1)  # Based on GAZEBO unit: [m]
-        self.declare_parameter('wheel_base', 0.57)    # Based on GAZEBO unit: [m]
-        self.declare_parameter('gear_ratio', 15.0)  
-        self.declare_parameter('max_rpm', 1000.0)     # 예: 모터의 최대 RPM (안전 제한용)
+        self.declare_parameter('wheel_radius', 0.1)  # Based on real unit: [m]
+        self.declare_parameter('wheel_base', 1.5)    # Based on real unit: [m]
+        self.declare_parameter('gear_ratio', 60.0)  
+        self.declare_parameter('max_rpm', 4000.0)     # 예: 모터의 최대 RPM (안전 제한용)
 
         self.wheel_radius = self.get_parameter('wheel_radius').get_parameter_value().double_value
         self.wheel_base = self.get_parameter('wheel_base').get_parameter_value().double_value
@@ -51,18 +51,7 @@ class MotorCmdVelTrx(Node):
             10
         )
         
-        state_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1
-        )
-        self.state_sub = self.create_subscription(
-            String,
-            '/robot_state',
-            self.robot_state_callback,
-            state_qos
-        )
+        self.state_sub = self.create_subscription(String, '/robot_state', self.robot_state_callback, 10)
         
         # === 3. 상태 변수들 [수정] ===
         self.current_robot_state = "STOP"  # [수정] 초기 상태를 "STOP"으로 변경 (IDLE -> STOP)
@@ -128,7 +117,7 @@ class MotorCmdVelTrx(Node):
         
         # [수정] 주행 가능 상태가 아니면 명령을 무시합니다.
         # (MANUAL -> KEY, AUTO -> RUN)
-        if self.current_robot_state not in ["KEY", "RUN", "CAL", "ALIGN"]:
+        if self.current_robot_state not in ["KEY", "RUN", "CAL"]:
             return
             
         # 1. /cmd_vel에서 선속도(v)와 각속도(w)를 가져옵니다.
@@ -139,10 +128,10 @@ class MotorCmdVelTrx(Node):
         # v_left  = v - (w * L / 2)
         # v_right = v + (w * L / 2)
         # (L = self.wheel_base = 궤도 중심간 거리)
-        
-        v_left_ms = v - (w * self.wheel_base / 2.0)
-        v_right_ms = v + (w * self.wheel_base / 2.0)
-        
+
+        v_left_ms = v - (w * self.wheel_base * 0.5)
+        v_right_ms = v + (w * self.wheel_base * 0.5)
+
         # 3. 바퀴(궤도) 속도(m/s)를 RPM으로 변환
         # RPM = (v_ms * 60) / (2 * pi * wheel_radius)
         # (wheel_radius = 구동 스프로킷 반경)
