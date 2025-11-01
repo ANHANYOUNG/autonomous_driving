@@ -38,7 +38,9 @@ install(PROGRAMS
   scripts/state_machine.py
   scripts/cmd_send.py
   scripts/pure_pursuit_controller_v2.py
+  scripts/motor_cmd_vel_trx_v2.py
   scripts/app_bridge.py
+  scripts/imu_offset.py
   DESTINATION lib/${PROJECT_NAME}
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
 )

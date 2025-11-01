@@ -17,13 +17,12 @@ from std_msgs.msg import String
 # ------------------------------------------------------------
 VALID_COMMANDS = {
     # 상위 상태 전환
-    "AUTO",
-    "MANUAL",
+    "RUN",
+    "KEY",
     "CAL",
-    "DONE",
     "E_STOP",
     "ALIGN",
-    # AUTO 하위
+    # RUN 하위
     "AUTO_START",
     "path_A",   # ← 여기에 새 명령을 추가하세요 (예: "path_C")
     "path_B",
@@ -35,7 +34,7 @@ HELP_TEXT = (
     "Allowed commands:\n"
     "  " + ", ".join(sorted(list(VALID_COMMANDS))) + "\n\n"
     "Examples:\n"
-    "  AUTO\n"
+    "  RUN\n"
     "  path_A\n"
     "  AUTO_START\n"
     "  E_STOP\n"
@@ -116,7 +115,7 @@ def main():
     parser.add_argument(
         "command",
         nargs="*",
-        help="Command(s) to publish (e.g., AUTO, path_A, AUTO_START, E_STOP).",
+        help="Command(s) to publish (e.g., RUN, path_A, AUTO_START, E_STOP).",
     )
     parser.add_argument(
         "--times", "-t", type=int, default=1,

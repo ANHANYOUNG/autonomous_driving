@@ -9,7 +9,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPo
 class StateManager(Node):
     """
     - 사용자 명령, 수동 개입, 자율주행 완료 신호를 감지합니다.
-    - 시스템의 마스터 상태(IDLE, AUTO, MANUAL, ALIGN, CALIBRATION)를 결정합니다.
+    - 시스템의 마스터 상태(STOP, RUN, KEY, ALIGN, CALIBRATION)를 결정합니다.
     - 결정된 상태를 '/robot_state' 토픽으로 발행합니다.
     """
     def __init__(self):
@@ -17,21 +17,15 @@ class StateManager(Node):
         self.get_logger().info('State Manager (Brain) has been started.')
 
         # 1. 파라미터 및 내부 상태 변수
-        self.declare_parameter('initial_state', 'IDLE')
+        self.declare_parameter('initial_state', 'STOP')
         self.state = self.get_parameter('initial_state').get_parameter_value().string_value
 
         # 2. 발행 (Publication)
-        state_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1
-        )
-        self.state_pub = self.create_publisher(String, '/robot_state', state_qos)
+        self.state_pub = self.create_publisher(String, '/robot_state', 10)
         
         # 3. 구독 (Subscriptions)
         self.create_subscription(String, '/state_command', self.command_callback, 10)
-        self.create_subscription(Twist, '/cmd_vel', self.manual_override_callback, 10)
+
 
         # 4. 초기 상태 발행 및 주기적 발행 타이머
         self.get_logger().info(f'Initial state set to: {self.state}')
@@ -55,33 +49,22 @@ class StateManager(Node):
     def command_callback(self, msg):
         command = msg.data
         
-        # E_STOP 또는 IDLE 명령은 항상 IDLE 상태로 전환
-        if command == 'E_STOP' or command == 'IDLE':
-            self._update_state('IDLE')
+        # E_STOP 또는 STOP 명령은 항상 STOP 상태로 전환
+        if command == 'E_STOP' or command == 'STOP':
+            self._update_state('STOP')
+        
+        elif command == 'RUN':
+            self._update_state('RUN')
+
+        elif command == 'KEY':
+            self._update_state('KEY')
+            
+        elif command == 'CAL':
+            self._update_state('CALIBRATION')
+            
+        elif command == 'ALIGN':
+            self._update_state('ALIGN')
             return
-
-        current_state = self.state
-        
-        if current_state == 'IDLE':
-            if command == 'MANUAL':
-                self._update_state('MANUAL')
-            elif command == 'AUTO':
-                self._update_state('AUTO')
-            elif command == 'CAL':
-                self._update_state('CALIBRATION')
-            elif command == 'ALIGN':
-                self._update_state('ALIGN')
-        
-        # IDLE이 아닌 어떤 상태에서든 DONE 명령을 받으면 IDLE로 돌아감
-        elif current_state in ['MANUAL', 'AUTO', 'CALIBRATION', 'ALIGN']:
-            if command == 'DONE':
-                self._update_state('IDLE')
-
-    # 수동 조작 감지
-    def manual_override_callback(self, msg):
-        if self.state in ['AUTO', 'CALIBRATION', 'ALIGN']:
-            self.get_logger().warn(f'Manual override detected in {self.state} state! Switching to MANUAL mode.')
-            self._update_state('MANUAL')
 
     # robot_state 토픽을 주기적으로 발행
     def publish_state_loop(self):
