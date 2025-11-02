@@ -2,9 +2,9 @@
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
 import numpy as np
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path
 import math
 from sensor_msgs.msg import Imu, NavSatFix
 import pyproj
@@ -49,21 +49,29 @@ class PurePursuitNode(Node):
         self.zero_twist = Twist()
 
         # 예시 경로점
-        self.waypoints = [(7.0, 5.0), 
-                          (7.0, 20.0), 
-                          (5.0, 20.0), 
-                          (5.0, 5.0) 
-                        #   (-9, 0.75), 
-                        #   (9, 0.75), 
-                        #   (9, -0.75), 
-                        #   (-9, -0.75), 
-                        #   (-9, -2.25),
-                        #   (9, -2.25),
-                        #   (9, -3.75),
-                        #   (-9, -3.75)
+        self.waypoints = [
+                        (7.0, 5.0), 
+                        (7.0, 20.0), 
+                        (5.0, 20.0), 
+                        (5.0, 5.0)
+                            # (-9, 3.75),
+                            # (9, 3.75),
+                            # (9, 2.25),
+                            # (-9, 2.25),
+                            # (-9, 1.25),
+                            # (9, 1.25),
+                            # (9, 0.75),
+                            # (-9, 0.75), 
+                            # (9, 0.75), 
+                            # (9, -0.75), 
+                            # (-9, -0.75), 
+                            # (-9, -2.25),
+                            # (9, -2.25),
+                            # (9, -3.75),
+                            # (-9, -3.75)
                           ]
         
-        self.lookahead_distance = 2.0
+        self.lookahead_distance = 2.0 # gazebo: 1.0, real: 2.0
         self.lookahead_idx = 1
         self.interpolated_waypoints = self.interpolate_waypoints(self.waypoints, self.lookahead_distance)
 
@@ -107,6 +115,31 @@ class PurePursuitNode(Node):
         self.rotate_flag = 0
         self.state = "move"  # "move" 또는 "rotate"
 
+        # ========== 추가: Path Publishers ==========
+        self.waypoints_path_pub = self.create_publisher(Path, '/waypoints_path', 10)
+        
+        # Waypoints를 Path로 발행
+        self.publish_waypoints_path()
+    
+    # ========== 추가: Waypoints Path 발행 메서드 ==========
+    def publish_waypoints_path(self):
+        """Waypoints를 nav_msgs/Path로 발행 (plot_ppc.py가 수신)"""
+        path = Path()
+        path.header.frame_id = 'map'
+        path.header.stamp = self.get_clock().now().to_msg()
+        
+        for wp in self.waypoints:
+            pose = PoseStamped()
+            pose.header = path.header
+            pose.pose.position.x = float(wp[0])
+            pose.pose.position.y = float(wp[1])
+            pose.pose.position.z = 0.0
+            pose.pose.orientation.w = 1.0
+            path.poses.append(pose)
+        
+        self.waypoints_path_pub.publish(path)
+        self.get_logger().info(f'Published {len(self.waypoints)} waypoints to /waypoints_path')
+    
     def ppc_enable_callback(self, msg: Bool):
         """PPC 활성화/비활성화 상태를 수신하고 즉각적인 조치를 취합니다."""
         

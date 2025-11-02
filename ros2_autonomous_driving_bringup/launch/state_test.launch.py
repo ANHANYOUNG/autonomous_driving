@@ -184,6 +184,16 @@ def generate_launch_description():
                     {'publish_rate': 1.0},]  # 발행 주기 (Hz)
     )
 
+    # plot
+    plot_ppc_node = Node(
+        package = 'ros2_autonomous_driving_application',
+        executable = 'plot_ppc.py',
+        name = 'plot_ppc_node',
+        output = 'screen',
+        parameters = [{'use_sim_time': use_sim_time}] 
+    )
+
+
     return LaunchDescription([
         ### --- 4. 런치 인자를 실행 목록에 추가 --- ###
         use_sim_time_arg,
@@ -212,4 +222,6 @@ def generate_launch_description():
         # TF 고정 변환
         static_imu_tf,
         static_odom_to_chassis,
+        # plot
+        plot_ppc_node,
     ])
