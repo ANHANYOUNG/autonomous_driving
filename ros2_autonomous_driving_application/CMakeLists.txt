@@ -43,6 +43,7 @@ install(PROGRAMS
   scripts/app_bridge.py
   scripts/imu_offset.py
   scripts/plot_calibration.py
+  scripts/plot_ppc.py
   
   DESTINATION lib/${PROJECT_NAME}
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
