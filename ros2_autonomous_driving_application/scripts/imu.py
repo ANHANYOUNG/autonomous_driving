@@ -86,13 +86,9 @@ class WT901CNode(Node):
         # rclpy.node.Node 클래스의 생성자를 호출하고 노드 이름을 'wt901c_imu_node'로 설정합니다.
         super().__init__('wt901c_imu_node')
 
-        # QoS(Quality of Service) 프로파일 설정
-        # 센서 데이터와 같이 최신 데이터가 중요한 경우, BEST_EFFORT 정책을 사용하여
-        # 오래된 데이터가 네트워크 문제로 지연되더라도 버리고 새 데이터를 전송하게 합니다.
-        qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=20,
-                         reliability=ReliabilityPolicy.BEST_EFFORT)
+ 
         # '/imu/data' 토픽으로 Imu 메시지를 발행할 퍼블리셔를 생성합니다.
-        self.pub = self.create_publisher(Imu, '/imu/data', qos)
+        self.pub = self.create_publisher(Imu, '/imu/data', 10)
 
         # 시리얼 포트를 엽니다. timeout을 짧게 주어 read가 오랫동안 블로킹되지 않도록 합니다.
         self.ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=0.01)

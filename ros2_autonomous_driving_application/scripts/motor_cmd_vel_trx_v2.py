@@ -27,12 +27,12 @@ class MotorCmdVelTrx(Node):
         self.declare_parameter('wheel_radius', 0.1)  # Based on real unit: [m]
         self.declare_parameter('wheel_base', 1.5)    # Based on real unit: [m]
         self.declare_parameter('gear_ratio', 60.0)  
-        self.declare_parameter('max_rpm', 4000.0)     # 예: 모터의 최대 RPM (안전 제한용)
+        # self.declare_parameter('max_rpm', 5000.0)     # 예: 모터의 최대 RPM (안전 제한용)
 
         self.wheel_radius = self.get_parameter('wheel_radius').get_parameter_value().double_value
         self.wheel_base = self.get_parameter('wheel_base').get_parameter_value().double_value
         self.gear_ratio = self.get_parameter('gear_ratio').get_parameter_value().double_value
-        self.max_rpm = self.get_parameter('max_rpm').get_parameter_value().double_value
+        # self.max_rpm = self.get_parameter('max_rpm').get_parameter_value().double_value
         
         # 시리얼 포트 열기 (기존과 동일)
         try:
@@ -116,8 +116,8 @@ class MotorCmdVelTrx(Node):
         """
         
         # [수정] 주행 가능 상태가 아니면 명령을 무시합니다.
-        # (MANUAL -> KEY, AUTO -> RUN)
-        if self.current_robot_state not in ["KEY", "RUN", "CAL"]:
+        # (MANUAL -> KEY, AUTO -> RUN, CALIBRATION)
+        if self.current_robot_state not in ["KEY", "RUN", "CALIBRATION", "ALIGN"]:
             return
             
         # 1. /cmd_vel에서 선속도(v)와 각속도(w)를 가져옵니다.
@@ -146,8 +146,8 @@ class MotorCmdVelTrx(Node):
         rpm_right = (v_right_ms * 60.0 * self.gear_ratio) / circumference
         
         # 4. [안전] 최대 RPM 제한 (Clamping)
-        rpm_left = max(min(rpm_left, self.max_rpm), -self.max_rpm)
-        rpm_right = max(min(rpm_right, self.max_rpm), -self.max_rpm)
+        # rpm_left = max(min(rpm_left, self.max_rpm), -self.max_rpm)
+        # rpm_right = max(min(rpm_right, self.max_rpm), -self.max_rpm)
 
         # 6. 최종 모터 지령값(self.motor_command) 업데이트
         # [중요] M1이 왼쪽, M2가 오른쪽이라고 가정합니다.
