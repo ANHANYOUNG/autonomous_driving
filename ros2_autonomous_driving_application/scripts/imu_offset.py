@@ -32,7 +32,7 @@ class ImuOffsetNode(Node):
         self.enable = bool(self.get_parameter('enable').value)
 
         # 입력/출력
-        self.sub_imu = self.create_subscription(Imu, '/imu', self.imu_cb, 50) # 가제보: /imu, 현실: /imu/data
+        self.sub_imu = self.create_subscription(Imu, '/imu/data', self.imu_cb, 50) # 가제보: /imu, 현실: /imu/data
         self.pub_imu = self.create_publisher(Imu, '/imu_cal', 50)
 
         # 오프셋 실시간 갱신 채널
@@ -77,7 +77,7 @@ class ImuOffsetNode(Node):
             out.header = m.header  # stamp, frame_id 그대로
             out.orientation.x, out.orientation.y, out.orientation.z, out.orientation.w = q_cal
             out.angular_velocity.x, out.angular_velocity.y, out.angular_velocity.z = float(w_cal[0]), float(w_cal[1]), float(w_cal[2])
-            out.linear_acceleration.x, out.linear_acceleration.y, out.linear_acceleration.z = float(a_cal[0]), float(a_cal[1]), float(a_cal[2])
+            out.linear_acceleration.x, out.linear_acceleration.y, out.linear_acceleration.z = float(a_raw[0]), float(a_raw[1]), float(a_raw[2])
 
             # 공분산: 그대로 복사(실무 OK). yaw var=0 경고 뜨면 작은 값 넣어줘도 됨.
             out.orientation_covariance    = m.orientation_covariance

@@ -12,12 +12,11 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPo
 from nav_msgs.msg import Odometry
 from robot_localization.srv import SetPose
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
+from datetime import datetime
+import os
+import json
 
 class StateMachineExecutor(Node):
-    """
-    - '/robot_state'를 구독하여 현재 마스터 상태를 인지합니다.
-    - 해당 상태에 맞는 *동작*을 수행합니다. (예: STOP일 때 정지, AUTO일 때 경로 발행)
-    """
     def __init__(self):
         super().__init__('state_machine_executor_node', allow_undeclared_parameters=True, automatically_declare_parameters_from_overrides=True)
         self.get_logger().info('State Machine Executor has been started.')
@@ -26,7 +25,7 @@ class StateMachineExecutor(Node):
         self.current_state = 'INIT' # '관리자'로부터 상태를 받기 전
 
         # 3. 발행 (Publications)
-        self.stop_pub = self.create_publisher(Twist, '/cmd_vel_stop', 10)
+        self.stop_pub = self.create_publisher(Twist, '/cmd_vel_stop', 1)
         self.zero_twist = Twist() # 정지 명령용 (모든 필드 0)
         self.zero_twist.linear.x = 0.0
         self.zero_twist.linear.y = 0.0
@@ -34,10 +33,12 @@ class StateMachineExecutor(Node):
         self.zero_twist.angular.x = 0.0
         self.zero_twist.angular.y = 0.0
         self.zero_twist.angular.z = 0.0
+        self.ppc_enable_pub = self.create_publisher(Bool, '/ppc/enable', 5)
+        self.ppc_enable_pub.publish(Bool(data=False))
+        self.ppc_enabled = False
+        self.ppc_publish_timer = self.create_timer(1.0, self.publish_ppc_enable) # ppc_enable 1초마다 발행
 
         # 4. 구독 (Subscriptions)
-        self.ppc_enable_pub = self.create_publisher(Bool, '/ppc/enable', 10)
-        self.ppc_enable_pub.publish(Bool(data=False))
         self.create_subscription(String, '/robot_state', self.state_callback, 10)
 
         # Calibration I/O
@@ -58,13 +59,18 @@ class StateMachineExecutor(Node):
         self.cal_points = []
         self.cal_start_time = None
         
-        # CAL Parameters
-        self.forward_time = 2.0
-        self.backward_time = 2.0
+        # CAL Parameters # TODO UWB raw data 5Hz 감안해서 시간 설정
+        self.forward_time = 5.0
+        self.backward_time = 5.0
         self.forward_speed = 0.30
         self.backward_speed = -0.30
         self.calculated_yaw_error = 0.0
-        self.max_yaw_correction_deg = 40.0
+        self.max_yaw_correction_deg = 360.0
+        
+        # CAL Data Logging
+        self.cal_data_dir = os.path.expanduser('~/calibration_data')
+        os.makedirs(self.cal_data_dir, exist_ok=True)
+        self.cal_session_data = None
         
         # ALIGN I/O
         self.align_cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -79,14 +85,18 @@ class StateMachineExecutor(Node):
         self.start_pos_for_dot_product = None
 
         # ALIGN Parameters
-        self.align_target_pos = (-9.0, 3.75)
-        self.align_target_yaw = 0.0
+        self.align_target_pos = (7.0, 5.0)
+        self.align_target_yaw = math.pi * 0.5
         self.align_linear_speed = 0.3
         self.align_angular_speed = 0.2
         self.align_yaw_threshold = 0.01 # 약 0.57도
         
         # 타이머 (마지막에 생성)
         self.publish_timer = self.create_timer(0.1, self.state_machine_loop)
+
+    def publish_ppc_enable(self):
+        """1초마다 PPC enable 상태 발행"""
+        self.ppc_enable_pub.publish(Bool(data=self.ppc_enabled))
 
     def state_callback(self, msg):
         """마스터 상태 변경 감지 및 진입/이탈 동작 수행"""
@@ -99,8 +109,9 @@ class StateMachineExecutor(Node):
         self.get_logger().info(f'[STATE] Changed: {old_state} -> {new_state}')
 
         # === Exit 로직 ===
+        # 작업 완료 후 정지 명령 발행
         if old_state == 'RUN':
-            self.ppc_enable_pub.publish(Bool(data=False))
+            self.ppc_enabled = False
             self.get_logger().info('[EXIT] RUN: PPC disabled')
         
         if old_state == 'CALIBRATION':
@@ -119,7 +130,7 @@ class StateMachineExecutor(Node):
             self.get_logger().info('[ENTRY] STOP: Emergency stop published')
         
         elif new_state == 'RUN':
-            self.ppc_enable_pub.publish(Bool(data=True))
+            self.ppc_enabled = True
             self.get_logger().info('[ENTRY] RUN: PPC enabled')
 
         elif new_state == 'KEY':
@@ -130,6 +141,21 @@ class StateMachineExecutor(Node):
             self.calculated_yaw_error = 0.0
             self.cal_state = 'FORWARD'
             self.cal_start_time = self.get_clock().now()
+            
+            # 세션 데이터 초기화
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            self.cal_session_data = {
+                'timestamp': timestamp,
+                'points': [],
+                'parameters': {
+                    'forward_time': self.forward_time,
+                    'backward_time': self.backward_time,
+                    'forward_speed': self.forward_speed,
+                    'backward_speed': self.backward_speed
+                },
+                'results': {}
+            }
+            
             self.get_logger().info('[ENTRY] CALIBRATION: Started')
 
         elif new_state == 'ALIGN':
@@ -137,6 +163,7 @@ class StateMachineExecutor(Node):
             self.start_pos_for_dot_product = None
             self.get_logger().info('[ENTRY] ALIGN: Started')
 
+    # 상태 머신 루프 0.1초마다 실행
     def state_machine_loop(self):
         """0.1초마다 실행되는 루프"""
         if self.current_state == 'STOP':
@@ -148,6 +175,8 @@ class StateMachineExecutor(Node):
         elif self.current_state == 'ALIGN':
             self.align_callback()
 
+    # EKF 값 수신 상태별 변수 구분 필요
+    # TODO UWB로 cal 하기
     def odom_callback(self, msg):
         """EKF 오도메트리 수신"""
         self.current_ekf = msg
@@ -167,6 +196,7 @@ class StateMachineExecutor(Node):
             self.align_current_y = msg.pose.pose.position.y
             self.align_current_yaw = self._yaw_from_quat(msg.pose.pose.orientation)
 
+    # CALIBRATION 단계별 실행
     def run_calibration_step(self):
         """CALIBRATION 단계별 실행"""
         if self.current_ekf is None:
@@ -199,6 +229,8 @@ class StateMachineExecutor(Node):
             if len(self.cal_points) < 50:
                 self.get_logger().error('[CAL] Not enough points collected')
                 self.cal_state = 'FINISHED'
+                self.command_pub.publish(String(data='STOP'))
+
                 return
             
             pts = np.array(self.cal_points, dtype=float)
@@ -215,7 +247,20 @@ class StateMachineExecutor(Node):
                     detected_angle = self._normalize_angle(detected_angle + math.pi)
                     
             target_axis_angle = 0.0
-            self.calculated_yaw_error = self._normalize_angle(target_axis_angle - detected_angle)
+            self.calculated_yaw_error = self._normalize_angle(detected_angle - target_axis_angle)
+            
+            # 결과 저장
+            if self.cal_session_data is not None:
+                self.cal_session_data['results'] = {
+                    'num_points': len(self.cal_points),
+                    'detected_angle_deg': math.degrees(detected_angle),
+                    'yaw_error_deg': math.degrees(self.calculated_yaw_error),
+                    'eigenvalues': w.tolist(),
+                    'eigenvector': [float(vx), float(vy)],
+                    'direction_vector': [float(vdir[0]), float(vdir[1])] if vdir else None,
+                    'covariance_matrix': C.tolist()
+                }
+            
             self.get_logger().info(f'[CAL] Detected angle={math.degrees(detected_angle):.1f}°, Error={math.degrees(self.calculated_yaw_error):.1f}°')
             self.cal_state = 'CORRECTING'
 
@@ -225,6 +270,7 @@ class StateMachineExecutor(Node):
                 self.get_logger().warn(f'[CAL] Error too large: {math.degrees(yaw_err):.1f}° -> STOP')
                 self.command_pub.publish(String(data='STOP'))
                 self.cal_state = 'FINISHED'
+                self._save_calibration_data(success=False, reason='error_too_large')
                 return
             
             self.imu_offset_pub.publish(Float64(data=yaw_err))
@@ -234,7 +280,9 @@ class StateMachineExecutor(Node):
             self.cal_pub.publish(self.zero_twist)
             self.command_pub.publish(String(data='STOP'))
             self.cal_state = 'FINISHED'
+            self._save_calibration_data(success=True)
 
+    # 각도 정규화 및 벡터 추정 유틸리티
     def _normalize_angle(self, a):
         """각도를 -pi ~ pi 범위로 정규화"""
         while a > math.pi:
@@ -247,7 +295,8 @@ class StateMachineExecutor(Node):
         """쿼터니언에서 Yaw 각도 추출"""
         roll, pitch, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
         return yaw
-        
+    
+    # 방향 벡터 추정
     def _estimate_direction_vector(self):
         """수집된 점들로부터 주행 방향 벡터 추정"""
         if len(self.cal_points) < 10:
@@ -260,7 +309,32 @@ class StateMachineExecutor(Node):
         if n < 1e-6:
             return None
         return (dx/n, dy/n)
+    
+    def _save_calibration_data(self, success=True, reason=''):
+        """캘리브레이션 데이터를 파일로 저장"""
+        if self.cal_session_data is None:
+            return
+        
+        # 포인트 데이터 저장
+        self.cal_session_data['points'] = [[float(x), float(y)] for x, y in self.cal_points]
+        self.cal_session_data['success'] = success
+        self.cal_session_data['failure_reason'] = reason
+        
+        timestamp = self.cal_session_data['timestamp']
+        
+        # JSON 파일로 저장
+        json_file = os.path.join(self.cal_data_dir, f'cal_{timestamp}.json')
+        with open(json_file, 'w') as f:
+            json.dump(self.cal_session_data, f, indent=2)
+        
+        # NumPy 배열로도 저장 (빠른 로딩용)
+        npy_file = os.path.join(self.cal_data_dir, f'cal_{timestamp}.npy')
+        np.save(npy_file, np.array(self.cal_points))
+        
+        self.get_logger().info(f'[CAL] Data saved: {json_file}')
+        self.get_logger().info(f'[CAL] Points saved: {npy_file}')
 
+    # ALIGN 단계별 실행
     def align_callback(self):
         """ALIGN 단계별 실행"""
         if self.current_ekf is None:

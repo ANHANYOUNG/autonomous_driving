@@ -205,11 +205,11 @@ def generate_launch_description():
         motor_cmd_vel_trx_node,
         # # 센서
         imu_offset_node,
-        # uwb_publisher_node,
+        uwb_publisher_node,
         # uwb_data_wifi_out,
-        # imu_node,
+        imu_node,
         # uwb_publisher_dummy_node,
-        # # TF 고정 변환
-        # static_imu_tf,
-        # static_odom_to_chassis,
+        # TF 고정 변환
+        static_imu_tf,
+        static_odom_to_chassis,
     ])
