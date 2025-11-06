@@ -31,6 +31,9 @@ class PurePursuitNode(Node):
         self.heading_error_pub = self.create_publisher(Float64, '/ppc/heading_error', 10)
         self.cte_pub = self.create_publisher(Float64, '/ppc/cte', 10)
         self.waypoint_idx_pub = self.create_publisher(Int32, '/ppc/waypoint_idx', 10)  # ✅ 새로운 Publisher
+        
+        # ✅ 미션 완료 시 state machine에 stop 전송
+        self.command_pub = self.create_publisher(String, '/state_command', 10)
 
 
         self.dt_gps = 0.1
@@ -58,12 +61,15 @@ class PurePursuitNode(Node):
 
         # 예시 경로점
         self.waypoints = [
-            (-9, 3.75), (9, 3.75),
-            (9, 2.25), (-9, 2.25),
-            (-9, 0.75), (9, 0.75),
-            (9, -0.75), (-9, -0.75),
-            (-9, -2.25), (9, -2.25),
-            (9, -3.75), (-9, -3.75)
+            # (-9, 3.75), (9, 3.75),
+            # (9, 2.25), (-9, 2.25),
+            # (-9, 0.75), (9, 0.75),
+            # (9, -0.75), (-9, -0.75),
+            # (-9, -2.25), (9, -2.25),
+            # (9, -3.75), (-9, -3.75)
+            (-9,9), (-1,9),
+            (-1,5), (-9,5),
+            (-9,1), (-1,1)
         ]
         
         self.lookahead_distance = 1.0 # gazebo: 1.0, real: 2.0
@@ -112,6 +118,9 @@ class PurePursuitNode(Node):
 
         self.rotate_flag = 0
         self.state = "move"  # "move" 또는 "rotate"
+        
+        # ✅ 완료 판정
+        self.mission_completed = False
 
         # ========== 추가: Path Publishers ==========
         self.waypoints_path_pub = self.create_publisher(Path, '/waypoints_path', 10)
@@ -121,36 +130,24 @@ class PurePursuitNode(Node):
         # Waypoints를 Path로 발행
         self.publish_waypoints_path()
     
-    # ========== 추가: Waypoints Path 발행 메서드 ==========
-    def publish_waypoints_path(self):
-        """Waypoints를 nav_msgs/Path로 발행 (plot_ppc.py가 수신)"""
-        path = Path()
-        path.header.frame_id = 'map'
-        path.header.stamp = self.get_clock().now().to_msg()
-        
-        for wp in self.waypoints:
-            pose = PoseStamped()
-            pose.header = path.header
-            pose.pose.position.x = float(wp[0])
-            pose.pose.position.y = float(wp[1])
-            pose.pose.position.z = 0.0
-            pose.pose.orientation.w = 1.0
-            path.poses.append(pose)
-        
-        self.waypoints_path_pub.publish(path)
-        self.get_logger().info(f'Published {len(self.waypoints)} waypoints to /waypoints_path')
-    
     def ppc_enable_callback(self, msg: Bool):
         """PPC 활성화/비활성화 상태를 수신하고 즉각적인 조치를 취합니다."""
         
         # 상태가 변경될 때만 로그 출력
         if self.is_enabled != msg.data:
             if msg.data:
+                # ✅ 재활성화 시 미션 완료 플래그 리셋
+                self.mission_completed = False
+                self.current_waypoint_idx = 0
+                self.lookahead_idx = 1
+                self.state = "move"
                 self.get_logger().info('Pure Pursuit [ENABLED]')
             else:
                 # 비활성화되는 즉시 0 속도를 1회 발행
                 # (twist_mux가 이 토픽을 timeout 처리할 때까지 기다리지 않도록)
                 self.cmd_pub.publish(self.zero_twist)
+                self.mission_completed = True
+                self.get_logger().info('Pure Pursuit [DISABLED]')
                 
         self.is_enabled = msg.data
 
@@ -260,6 +257,7 @@ class PurePursuitNode(Node):
         lookahead_distance: float
         return: [(x, y), ...] (보간된 경로점 리스트)
         """
+        # 최소 경로점 개수
         if len(waypoints) < 2:
             return waypoints
 
@@ -269,8 +267,9 @@ class PurePursuitNode(Node):
             x1, y1 = waypoints[i + 1]
             dx = x1 - x0
             dy = y1 - y0
-            segment_length = np.hypot(dx, dy)
-            num_points = max(int(segment_length // lookahead_distance), 1)
+            segment_length = np.hypot(dx, dy) # 최소 거리 계산
+            num_points = max(int(segment_length // lookahead_distance), 1) # ld 간격 계산, max()로 1 이상 보장
+            # 두 점 사이를 일정 간격으로 쪼개서 중간 점 만들기
             for j in range(num_points):
                 t = j * lookahead_distance / segment_length
                 xi = x0 + t * dx
@@ -312,15 +311,41 @@ class PurePursuitNode(Node):
             min_dist = min(min_dist, dist)
         
         return min_dist
-    
+    # Waypoints Path 발행 
+    def publish_waypoints_path(self):
+        """Waypoints를 nav_msgs/Path로 발행 (plot_ppc.py가 수신)"""
+        path = Path()
+        path.header.frame_id = 'map'
+        path.header.stamp = self.get_clock().now().to_msg()
+        
+        for wp in self.waypoints:
+            pose = PoseStamped()
+            pose.header = path.header
+            pose.pose.position.x = float(wp[0])
+            pose.pose.position.y = float(wp[1])
+            pose.pose.position.z = 0.0
+            pose.pose.orientation.w = 1.0
+            path.poses.append(pose)
+        
+        self.waypoints_path_pub.publish(path)
+        self.get_logger().info(f'Published {len(self.waypoints)} waypoints to /waypoints_path')
+
     def timer_callback(self):
         """메인 제어 루프 (250ms마다 실행)"""
+        # 움직일지 말지
         if not self.is_enabled:
             self.cmd_pub.publish(self.zero_twist)
             return
         
-        twist = Twist()
+        # 완료 시 정지
+        if self.mission_completed:
+            self.cmd_pub.publish(self.zero_twist)
+            self.command_pub.publish(String(data="STOP"))
+            return
         
+        twist = Twist()
+
+        # EKF 위치 정보가 없으면 종료
         if self.global_x is None or self.global_y is None or self.global_yaw is None:
             return
         
@@ -341,7 +366,13 @@ class PurePursuitNode(Node):
             ) - yaw
         )
 
-        # ✅ 내적기반 도착 판정 + waypoint index 증가
+        # 완료 판정
+        last_idx = len(self.interpolated_waypoints) - 1
+        if last_idx >= 0 and self.lookahead_idx >= last_idx:
+            self.get_logger().info("Reached final waypoint")
+            self.mission_completed = True
+
+        # 내적기반 도착 판정 + waypoint index 증가
         if min_idx > 0 and min_idx + 1 < len(self.interpolated_waypoints):
             prev_wp = self.interpolated_waypoints[min_idx - 1]
             curr_wp = self.interpolated_waypoints[min_idx]
@@ -351,19 +382,21 @@ class PurePursuitNode(Node):
             dot = np.dot(vec_path, vec_robot)
             
             if dot > 0:
-                if self.rotate_flag == 1:
-                    self.rotate_flag = 0
-                    self.state = "rotate"
-                    
-                    # ✅ waypoint 도착 판정 시 index 증가
-                    if self.current_waypoint_idx + 1 < len(self.waypoints):
+                # ✅ 마지막 웨이포인트가 아닐 때만 처리
+                if self.current_waypoint_idx + 1 < len(self.waypoints):
+                    if self.rotate_flag == 1:
+                        self.rotate_flag = 0
+                        self.state = "rotate"
+                        
+                        # ✅ waypoint 도착 판정 시 index 증가
                         self.current_waypoint_idx += 1
                         self.get_logger().info(
                             f'Reached waypoint {self.current_waypoint_idx-1}, '
                             f'moving to waypoint {self.current_waypoint_idx}'
                         )
-                
-                min_idx += 1
+                    
+                    min_idx += 1
+                # ✅ 마지막 웨이포인트는 arrival_threshold로 별도 처리 (위에서)
 
         # lookahead_point 업데이트
         self.lookahead_idx = min_idx
@@ -401,14 +434,6 @@ class PurePursuitNode(Node):
                     twist.linear.x = 0.3
                     twist.angular.z = twist.linear.x * curvature
 
-                # self.get_logger().info(
-                #     f"Current: x={x:.2f}, y={y:.2f}, yaw={math.degrees(yaw):.1f} deg | "
-                #     f"Target: x={lookahead_point[0]:.2f}, y={lookahead_point[1]:.2f} | "
-                #     f"Curvature: {curvature:.4f} | "
-                #     f"Waypoint idx: {self.lookahead_idx}, dist: {min_dist:.4f} | "
-                #     f"cnt: {(self.clock_cnt - self.imu_cnt):.4f}, {self.clock_cnt:.4f}/{self.imu_cnt:.4f} | "
-                # )
-
             elif self.state == "rotate":
                 # 가장 가까운 waypoint(시작점 제외)를 찾음
                 min_wp_dist = float('inf')
@@ -435,8 +460,7 @@ class PurePursuitNode(Node):
                     twist.linear.x = 0.0
                     twist.angular.z = np.sign(yaw_error) * (np.pi / 36)  # 10 deg/s, 방향 고려
                     self.get_logger().info(
-                        f"Rotating in place. Yaw error: {yaw_error_deg:.2f} current: {math.degrees(yaw):.2f} deg) | "
-                        f"cnt: {(self.clock_cnt - self.imu_cnt):.4f}, {self.clock_cnt:.4f}/{self.imu_cnt:.4f} | "
+                        f"[RUN] Rotating in place. Yaw error: {yaw_error_deg:.2f} current: {math.degrees(yaw):.2f} deg) | "
                     )
         
         # plot 용 데이터 계산 및 발행
@@ -451,8 +475,8 @@ class PurePursuitNode(Node):
         lookahead_msg = PoseStamped()
         lookahead_msg.header.frame_id = 'map'
         lookahead_msg.header.stamp = self.get_clock().now().to_msg()
-        lookahead_msg.pose.position.x = lookahead_point[0]
-        lookahead_msg.pose.position.y = lookahead_point[1]
+        lookahead_msg.pose.position.x = float(lookahead_point[0])
+        lookahead_msg.pose.position.y = float(lookahead_point[1])
         lookahead_msg.pose.position.z = 0.0
         lookahead_msg.pose.orientation.w = 1.0
         self.lookahead_pub.publish(lookahead_msg)

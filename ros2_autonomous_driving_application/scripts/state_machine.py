@@ -85,8 +85,8 @@ class StateMachineExecutor(Node):
         self.start_pos_for_dot_product = None
 
         # ALIGN Parameters
-        self.align_target_pos = (7.0, 5.0)
-        self.align_target_yaw = math.pi * 0.5
+        self.align_target_pos = (-9.0, 9.0) # (x, y)
+        self.align_target_yaw = 0.0
         self.align_linear_speed = 0.3
         self.align_angular_speed = 0.2
         self.align_yaw_threshold = 0.01 # 약 0.57도
