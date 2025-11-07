@@ -14,7 +14,7 @@ class StateManager(Node):
     """
     def __init__(self):
         super().__init__('state_manager_node')
-        self.get_logger().info('State Manager (Brain) has been started.')
+        self.get_logger().info('[STATE_MANAGER] State Manager (Brain) has been started.')
 
         # 1. 파라미터 및 내부 상태 변수
         self.declare_parameter('initial_state', 'STOP')
@@ -28,7 +28,7 @@ class StateManager(Node):
 
 
         # 4. 초기 상태 발행 및 주기적 발행 타이머
-        self.get_logger().info(f'Initial state set to: {self.state}')
+        self.get_logger().info(f'[STATE_MANAGER] Initial state set to: {self.state}')
         self._update_state(self.state, force_publish=True)
         self.publish_timer = self.create_timer(1.0, self.publish_state_loop)
 
@@ -38,7 +38,7 @@ class StateManager(Node):
         if new_state == self.state and not force_publish:
             return
 
-        self.get_logger().info(f'State transition: {self.state} -> {new_state}')
+        self.get_logger().info(f'[STATE_MANAGER] State transition: {self.state} -> {new_state}')
         self.state = new_state
         
         state_msg = String()
@@ -75,7 +75,7 @@ class StateManager(Node):
         state_msg = String()
         state_msg.data = self.state
         self.state_pub.publish(state_msg)
-        self.get_logger().info(f'Publishing state: {self.state}')
+        self.get_logger().info(f'[STATE_MANAGER] Publishing state: {self.state}')
 
 
 def main(args=None):

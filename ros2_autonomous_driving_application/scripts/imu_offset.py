@@ -37,11 +37,11 @@ class ImuOffsetNode(Node):
 
         # 오프셋 실시간 갱신 채널
         self.sub_offset = self.create_subscription(Float64, '/yaw_offset', self.set_offset_cb, 10)
-        self.get_logger().info('[imu_offset] yaw_offset=%.4f rad' % self.yaw_offset)
+        self.get_logger().info('[IMU_OFFSET] yaw_offset=%.4f rad' % self.yaw_offset)
 
     def set_offset_cb(self, msg: Float64):
         self.yaw_offset = float(msg.data)
-        self.get_logger().info('set yaw_offset=%.4f rad' % self.yaw_offset)
+        self.get_logger().info('[IMU_OFFSET] set yaw_offset=%.4f rad' % self.yaw_offset)
 
     # 정규화: [-pi, pi] 유지
     @staticmethod
@@ -77,20 +77,20 @@ class ImuOffsetNode(Node):
             out.header = m.header  # stamp, frame_id 그대로
             out.orientation.x, out.orientation.y, out.orientation.z, out.orientation.w = q_cal
             out.angular_velocity.x, out.angular_velocity.y, out.angular_velocity.z = float(w_cal[0]), float(w_cal[1]), float(w_cal[2])
-            out.linear_acceleration.x, out.linear_acceleration.y, out.linear_acceleration.z = float(a_raw[0]), float(a_raw[1]), float(a_raw[2])
+            out.linear_acceleration.x, out.linear_acceleration.y, out.linear_acceleration.z = float(a_cal[0]), float(a_cal[1]), float(a_cal[2])
 
-            # 공분산: 그대로 복사(실무 OK). yaw var=0 경고 뜨면 작은 값 넣어줘도 됨.
+            # 공분산: 그대로 복사 yaw var=0 경고 뜨면 작은 값 넣어줘도 됨.
             out.orientation_covariance    = m.orientation_covariance
             out.angular_velocity_covariance = m.angular_velocity_covariance
             out.linear_acceleration_covariance = m.linear_acceleration_covariance
 
             self.pub_imu.publish(out)
             # 과거 yaw(degree) 와 비교한 현재 yaw(degree) 한 번만 로그
-            self.get_logger().info(f'[CAL] yaw_offset={self.yaw_offset * 180.0 / math.pi:.4f} deg', once=True)
+            self.get_logger().info(f'[IMU_OFFSET] yaw_offset={self.yaw_offset * 180.0 / math.pi:.4f} deg', once=True)
 
         except Exception as e:
             # 실패 시 원본 패스(로그만)
-            self.get_logger().warn(f'imu/cal failed, passthrough. err={e}')
+            self.get_logger().warn(f'[IMU_OFFSET] imu/cal failed, passthrough. err={e}')
             self.pub_imu.publish(m)
 
 def main(args=None):

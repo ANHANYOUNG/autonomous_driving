@@ -18,7 +18,6 @@ def generate_launch_description():
     ekf_config = os.path.join(bringup_pkg_path, 'config', 'ekf.yaml')
 
     ### --- 1. use_sim_time 런치 인자 선언 --- ###
-    # 시뮬레이션 <-> 실제 로봇 전환 시 여기만 'true' 또는 'false'로 변경
     # 시뮬레이션: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=true
     # 실제 로봇: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=false
     use_sim_time_arg = DeclareLaunchArgument(

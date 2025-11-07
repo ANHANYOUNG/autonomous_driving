@@ -111,11 +111,11 @@ class AppWiFiTransmitter(Node):
         
         # HTTP 서버 시작
         self.start_http_server()
-        
-        self.get_logger().info(f'App WiFi Transmitter started on {self.host}:{self.port}')
-        self.get_logger().info('Endpoint: http://192.168.4.1:8888/to_app')
-        self.get_logger().info('Subscribed to /uwb_raw_data and /odometry/ekf_single')
-    
+
+        self.get_logger().info(f'[WIFI_TX] App WiFi Transmitter started on {self.host}:{self.port}')
+        self.get_logger().info('[WIFI_TX] Endpoint: http://192.168.4.1:8888/to_app')
+        self.get_logger().info('[WIFI_TX] Subscribed to /uwb_raw_data and /odometry/ekf_single')
+
     def start_http_server(self):
         """HTTP 서버를 별도 스레드에서 시작"""
         def handler_factory(*args, **kwargs):
@@ -135,28 +135,28 @@ class AppWiFiTransmitter(Node):
                     daemon=True
                 )
                 self.server_thread.start()
-                
-                self.get_logger().info(f'HTTP Server listening on {self.host}:{current_port}')
+
+                self.get_logger().info(f'[WIFI_TX] HTTP Server listening on {self.host}:{current_port}')
                 self.port = current_port  # 실제 사용하는 포트 업데이트
                 break
                 
             except OSError as e:
                 if e.errno == 98:  # Address already in use
-                    self.get_logger().warn(f'Port {current_port} in use, trying {current_port + 1}')
+                    self.get_logger().warn(f'[WIFI_TX] Port {current_port} in use, trying {current_port + 1}')
                     continue
                 else:
-                    self.get_logger().error(f'Failed to start HTTP server: {e}')
+                    self.get_logger().error(f'[WIFI_TX] Failed to start HTTP server: {e}')
                     break
         else:
-            self.get_logger().error(f'Could not find available port after {max_retries} attempts')
-    
+            self.get_logger().error(f'[WIFI_TX] Could not find available port after {max_retries} attempts')
+
     def serve_forever_with_shutdown(self):
         """서버 실행 (주기적으로 종료 확인)"""
         try:
             self.server.serve_forever()
         except Exception as e:
-            self.get_logger().error(f'HTTP server error: {e}')
-    
+            self.get_logger().error(f'[WIFI_TX] HTTP server error: {e}')
+
     def quaternion_to_yaw(self, x, y, z, w):
         """쿼터니언을 yaw 각도(degree)로 변환"""
         # yaw (z-axis rotation)
@@ -197,14 +197,14 @@ class AppWiFiTransmitter(Node):
                     # 디버깅 로그 (가끔씩만)
                     if self.ekf_callback_count <= 100 or self.ekf_callback_count % 500 == 0:
                         self.get_logger().info(
-                            f'EKF data updated #{self.ekf_callback_count//50}: '
+                            f'[WIFI_TX] EKF data updated #{self.ekf_callback_count//50}: '
                             f'Pos=({position_x:.2f}, {position_y:.2f}), '
                             f'Vel={velocity_magnitude:.2f}, Yaw={yaw_deg:.2f}°'
                         )
             
         except Exception as e:
-            self.get_logger().error(f'Error processing EKF data: {e}')
-    
+            self.get_logger().error(f'[WIFI_TX] Error processing EKF data: {e}')
+
     def uwb_data_callback(self, msg):
         """UWB 원시 데이터 수신 및 JSON 변환 (앵커 정보만)"""
         try:
@@ -226,7 +226,7 @@ class AppWiFiTransmitter(Node):
                     ]
                     
         except Exception as e:
-            self.get_logger().error(f'Error processing UWB data: {e}')
+            self.get_logger().error(f'[WIFI_TX] Error processing UWB data: {e}')
     
     def get_uwb_json_data(self):
         """앱 요청 시 최신 UWB JSON 데이터 반환"""
@@ -251,16 +251,16 @@ class AppWiFiTransmitter(Node):
     
     def destroy_node(self):
         """노드 종료 시 HTTP 서버 정리"""
-        self.get_logger().info('Shutting down App WiFi Transmitter...')
+        self.get_logger().info('[WIFI_TX] Shutting down App WiFi Transmitter...')
         
         if hasattr(self, 'server'):
             self.server.shutdown()
             self.server.server_close()
         
-        self.get_logger().info(f'Total requests served: {self.request_count}')
-        self.get_logger().info(f'Total UWB data received: {self.data_count}')
-        self.get_logger().info(f'Total EKF callbacks: {self.ekf_callback_count}')
-        
+        self.get_logger().info(f'[WIFI_TX] Total requests served: {self.request_count}')
+        self.get_logger().info(f'[WIFI_TX] Total UWB data received: {self.data_count}')
+        self.get_logger().info(f'[WIFI_TX] Total EKF callbacks: {self.ekf_callback_count}')
+
         super().destroy_node()
 
 

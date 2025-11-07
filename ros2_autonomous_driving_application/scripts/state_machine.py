@@ -44,9 +44,9 @@ class StateMachineExecutor(Node):
         # Calibration I/O
         self.cal_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.command_pub = self.create_publisher(String, '/state_command', 10)
-        self.odom_sub = self.create_subscription(Odometry, '/odometry/ekf_single', self.odom_callback, 10)
         self.imu_offset_pub = self.create_publisher(Float64, '/yaw_offset', 10)
         self.yaw_offset_est = 0.0
+        self.odom_sub = self.create_subscription(Odometry, '/odometry/ekf_single', self.odom_callback, 10)
 
         # CALIBRATION 상태변수
         self.cal_state = 'IDLE'
@@ -94,10 +94,12 @@ class StateMachineExecutor(Node):
         # 타이머 (마지막에 생성)
         self.publish_timer = self.create_timer(0.1, self.state_machine_loop)
 
+    # PPC enable 상태 발행
     def publish_ppc_enable(self):
         """1초마다 PPC enable 상태 발행"""
         self.ppc_enable_pub.publish(Bool(data=self.ppc_enabled))
 
+    # 상태 변경 콜백
     def state_callback(self, msg):
         """마스터 상태 변경 감지 및 진입/이탈 동작 수행"""
         new_state = msg.data
@@ -106,35 +108,35 @@ class StateMachineExecutor(Node):
 
         old_state = self.current_state
         self.current_state = new_state
-        self.get_logger().info(f'[STATE] Changed: {old_state} -> {new_state}')
+        self.get_logger().info(f'[STATE_MACHINE] Changed: {old_state} -> {new_state}')
 
         # === Exit 로직 ===
         # 작업 완료 후 정지 명령 발행
         if old_state == 'RUN':
             self.ppc_enabled = False
-            self.get_logger().info('[EXIT] RUN: PPC disabled')
+            self.get_logger().info('[STATE_MACHINE] RUN: PPC disabled')
         
         if old_state == 'CALIBRATION':
             self.cal_state = 'IDLE'
             self.cal_pub.publish(self.zero_twist)
-            self.get_logger().info('[EXIT] CALIBRATION: Motors stopped')
+            self.get_logger().info('[STATE_MACHINE] CALIBRATION: Motors stopped')
 
         if old_state == 'ALIGN':
             self.align_state = 'IDLE'
             self.align_cmd_vel_pub.publish(self.zero_twist)
-            self.get_logger().info('[EXIT] ALIGN: Motors stopped')
+            self.get_logger().info('[STATE_MACHINE] ALIGN: Motors stopped')
 
         # === Entry 로직 ===
         if new_state == 'STOP':
             self.stop_pub.publish(self.zero_twist)
-            self.get_logger().info('[ENTRY] STOP: Emergency stop published')
-        
+            self.get_logger().info('[STATE_MACHINE] STOP: Emergency Stop')
+
         elif new_state == 'RUN':
             self.ppc_enabled = True
-            self.get_logger().info('[ENTRY] RUN: PPC enabled')
+            self.get_logger().info('[STATE_MACHINE] RUN: PPC enabled')
 
         elif new_state == 'KEY':
-            self.get_logger().info('[ENTRY] KEY: Manual mode')
+            self.get_logger().info('[STATE_MACHINE] KEY: Manual mode')
 
         elif new_state == 'CALIBRATION':
             self.cal_points = []
@@ -155,13 +157,13 @@ class StateMachineExecutor(Node):
                 },
                 'results': {}
             }
-            
-            self.get_logger().info('[ENTRY] CALIBRATION: Started')
+
+            self.get_logger().info('[STATE_MACHINE] CALIBRATION: Started')
 
         elif new_state == 'ALIGN':
             self.align_state = 'ALIGN_ROTATE_1'
             self.start_pos_for_dot_product = None
-            self.get_logger().info('[ENTRY] ALIGN: Started')
+            self.get_logger().info('[STATE_MACHINE] ALIGN: Started')
 
     # 상태 머신 루프 0.1초마다 실행
     def state_machine_loop(self):
@@ -197,6 +199,7 @@ class StateMachineExecutor(Node):
             self.align_current_yaw = self._yaw_from_quat(msg.pose.pose.orientation)
 
     # CALIBRATION 단계별 실행
+    # TODO 실시간 yaw로 보정
     def run_calibration_step(self):
         """CALIBRATION 단계별 실행"""
         if self.current_ekf is None:
@@ -309,7 +312,8 @@ class StateMachineExecutor(Node):
         if n < 1e-6:
             return None
         return (dx/n, dy/n)
-    
+
+    # CAL 데이터 저장
     def _save_calibration_data(self, success=True, reason=''):
         """캘리브레이션 데이터를 파일로 저장"""
         if self.cal_session_data is None:
@@ -335,6 +339,7 @@ class StateMachineExecutor(Node):
         self.get_logger().info(f'[CAL] Points saved: {npy_file}')
 
     # ALIGN 단계별 실행
+    # TODO align 제어
     def align_callback(self):
         """ALIGN 단계별 실행"""
         if self.current_ekf is None:

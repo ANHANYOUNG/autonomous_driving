@@ -22,7 +22,7 @@ VALID_COMMANDS = {
     "CAL",
     "E_STOP",
     "ALIGN",
-    # RUN 하위
+    "STOP",
     "AUTO_START",
     "path_A",   # ← 여기에 새 명령을 추가하세요 (예: "path_C")
     "path_B",
@@ -47,13 +47,13 @@ class StateCommandPublisher(Node):
     def __init__(self, topic_name: str = "/state_command"):
         super().__init__("state_command_publisher")
         self.pub = self.create_publisher(String, topic_name, 10)
-        self.get_logger().info(f"State command publisher ready → {topic_name}")
+        self.get_logger().info(f"[CMD_SEND] State command publisher ready → {topic_name}")
 
     def publish_command(self, text: str, repeat: int = 1, rate_hz: float = 0.0):
         """한 명령을 여러 번(옵션) 발행. rate_hz>0면 해당 주기로 반복 발행."""
         if text not in VALID_COMMANDS:
             self.get_logger().warn(
-                f"Unknown command: '{text}'. Allowed: {sorted(list(VALID_COMMANDS))}"
+                f"[CMD_SEND] Unknown command: '{text}'. Allowed: {sorted(list(VALID_COMMANDS))}"
             )
             return
 
@@ -64,7 +64,7 @@ class StateCommandPublisher(Node):
         repeat = max(1, int(repeat))
         for i in range(repeat):
             self.pub.publish(msg)
-            self.get_logger().info(f"published[{i+1}/{repeat}]: '{text}'")
+            self.get_logger().info(f"[CMD_SEND] published[{i+1}/{repeat}]: '{text}'")
             if sleep_dt > 0.0 and i + 1 < repeat:
                 time.sleep(sleep_dt)
 
@@ -73,7 +73,7 @@ def interactive_shell(repeat: int, rate_hz: float):
     rclpy.init()
     node = StateCommandPublisher()
     node.get_logger().info(
-        "Interactive mode. Type a command and press Enter.\n"
+        "[CMD_SEND] Interactive mode. Type a command and press Enter.\n"
         "Type 'help' for a list, 'exit' to quit."
     )
 
@@ -102,7 +102,7 @@ def interactive_shell(repeat: int, rate_hz: float):
     except KeyboardInterrupt:
         pass
     finally:
-        node.get_logger().info("Bye.")
+        node.get_logger().info("[CMD_SEND] Bye.")
         node.destroy_node()
         rclpy.shutdown()
 

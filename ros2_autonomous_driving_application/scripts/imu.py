@@ -1,45 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# 위 두 줄은 이 스크립트가 python3로 실행되어야 하며, UTF-8 인코딩을 사용함을 명시합니다.
 
-# 필요한 라이브러리들을 가져옵니다.
-import math      # 수학 연산(pi, cos, sin 등)을 위해 사용
-import time      # time.sleep() 등 시간 관련 함수를 위해 사용
-import serial    # 시리얼 통신을 위해 pyserial 라이브러리를 사용 (pip install pyserial)
-import rclpy     # ROS 2의 파이썬 클라이언트 라이브러리
-from rclpy.node import Node  # ROS 2 노드를 생성하기 위한 기본 클래스
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy  # 통신 품질(QoS) 설정을 위해 사용
-from std_msgs.msg import Header      # 메시지에 포함될 표준 헤더(타임스탬프, 좌표계 ID)
-from sensor_msgs.msg import Imu      # IMU 센서 데이터를 위한 표준 메시지 타입
+import math    
+import time     
+import serial    
+import rclpy     
+from rclpy.node import Node  
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from std_msgs.msg import Header      
+from sensor_msgs.msg import Imu     
 
-# ==============================================================================
-# 사용자 설정: 이 부분의 값들을 자신의 환경에 맞게 수정하세요.
-# ==============================================================================
-SERIAL_PORT = '/dev/usb-right-bottom'      # IMU 센서가 연결된 시리얼 포트 경로
-                                  # USB-UART 변환기는 보통 /dev/ttyUSBx 형식입니다.
-BAUDRATE    = 115200              # IMU 센서와 통신할 보드레이트(통신 속도). 장치 설정과 일치해야 합니다.
-FRAME_ID    = 'imu_link'          # 발행될 Imu 메시지의 header.frame_id. 로봇의 TF 트리와 일치시키는 것이 좋습니다.
+SERIAL_PORT = '/dev/usb-right-bottom'     
+                               
+BAUDRATE    = 115200              
+FRAME_ID    = 'imu_link'        
 
-# 공분산 행렬: 센서 측정값의 불확실성을 나타냅니다.
-# 지금은 대각 성분만 간단히 설정하여 축 간의 오차 상관관계는 없다고 가정합니다.
-# 값이 작을수록 해당 측정값을 더 신뢰한다는 의미입니다.
+# 공분산 행렬: 센서 측정값의 불확실성
+# 지금은 대각 성분만 간단히 설정하여 축 간의 오차 상관관계는 없다고 가정
+# 값이 작을수록 해당 측정값을 더 신뢰한다는 의미
 COV_ORIENT = [0.0001, 0, 0,  0, 0.0001, 0,  0, 0, 0.0001] # 방향(Orientation) 공분산
 
 COV_GYRO   = [0.0001, 0, 0,  0, 0.0001, 0,  0, 0, 0.0001] # 각속도(Angular Velocity) 공분산
 
 COV_ACCEL  = [0.025,  0, 0,  0, 0.025,  0,  0, 0, 0.025]  # 선형 가속도(Linear Acceleration) 공분산
-# ==============================================================================
-# 내부 상수: WitMotion 프로토콜과 물리 단위 변환을 위한 값들입니다.
-# ==============================================================================
-G_TO_MS2    = 9.80665              # 중력가속도(g)를 m/s^2로 변환하기 위한 상수
+
+G_TO_MS2    = 9.80665              # 중력가속도
 DEG_TO_RAD  = math.pi / 180.0      # 각도(degree)를 라디안(radian)으로 변환하기 위한 상수
 WT_PKT_LEN  = 11                   # WitMotion 센서의 표준 패킷 길이 (11바이트)
 ACC_ID, GYRO_ID, ANGLE_ID = 0x51, 0x52, 0x53  # 각 데이터 타입(가속도, 각속도, 각도)을 식별하는 ID
 
-# ==============================================================================
-# 도우미 함수들
-# ==============================================================================
-
+# Helper
 def le_i16(lo: int, hi: int) -> int:
     """리틀 엔디안 형식의 2바이트(low, high)를 16비트 부호 있는 정수로 변환합니다."""
     # high 바이트를 8비트 왼쪽으로 시프트하고 low 바이트와 OR 연산을 하여 16비트 값을 만듭니다.
@@ -87,7 +77,7 @@ class WT901CNode(Node):
         super().__init__('wt901c_imu_node')
 
  
-        # '/imu/data' 토픽으로 Imu 메시지를 발행할 퍼블리셔를 생성합니다.
+        # '/imu/data' 토픽 발행
         self.pub = self.create_publisher(Imu, '/imu/data', 10)
 
         # 시리얼 포트를 엽니다. timeout을 짧게 주어 read가 오랫동안 블로킹되지 않도록 합니다.
@@ -108,7 +98,7 @@ class WT901CNode(Node):
         # 이 타이머는 시리얼 포트를 지속적으로 확인하여 데이터 수신을 처리합니다.
         self.timer = self.create_timer(0.0005, self.poll)
 
-        self.get_logger().info(f'시리얼 포트 {SERIAL_PORT} @ {BAUDRATE}bps, frame_id={FRAME_ID}')
+        self.get_logger().info(f'[IMU] 시리얼 포트 {SERIAL_PORT} @ {BAUDRATE}bps, frame_id={FRAME_ID}')
 
     def poll(self):
         """타이머에 의해 주기적으로 호출되어 시리얼 포트에서 데이터를 읽고 버퍼에 추가합니다."""
@@ -122,7 +112,7 @@ class WT901CNode(Node):
                 self._parse_buffer()
         except Exception as e:
             # 장치 연결 해제 등 시리얼 통신 중 발생할 수 있는 오류를 로깅합니다.
-            self.get_logger().error(f'시리얼 읽기 오류: {e}')
+            self.get_logger().error(f'[IMU] 시리얼 읽기 오류: {e}')
 
     def _parse_buffer(self):
         """내부 버퍼(self.buf)를 파싱하여 유효한 11바이트 패킷들을 처리합니다."""
