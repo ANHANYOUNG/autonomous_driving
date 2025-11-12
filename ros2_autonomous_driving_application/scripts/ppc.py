@@ -81,6 +81,7 @@ class PurePursuitNode(Node):
         
         # 런치 인자에서 받은 lookahead_distance 적용
         self.lookahead_distance = self.get_parameter('lookahead_distance').get_parameter_value().double_value
+        self.get_logger().info(f'[RUN] Ld={self.lookahead_distance}m')
 
         self.lookahead_idx = 1
         self.interpolated_waypoints = self.interpolate_waypoints(self.waypoints, self.lookahead_distance)
@@ -238,7 +239,12 @@ class PurePursuitNode(Node):
                 break
     
     def move_state(self):
-        """경로 추종 명령 계산 ("move" 상태일 때)"""
+        """
+        하이브리드 제어: 경로 추종 명령 계산 ("move" 상태일 때)
+        
+        - 멀리서 (ld > Ld * 0.25): Pure Pursuit 곡률 (부드러움)
+        - 가까이서 (ld <= Ld * 0.25): 실제 웨이포인트 정렬 곡률 (정확성)
+        """
         x = self.global_x
         y = self.global_y
         yaw = self.global_yaw
@@ -249,19 +255,36 @@ class PurePursuitNode(Node):
         dy = lookahead_point[1] - y
         ld = np.hypot(dx, dy)
         
-        # 이전 curvature 저장용 변수 추가
-        if not hasattr(self, 'prev_curvature'):
-            self.prev_curvature = 0.0
-        
-        if ld < self.lookahead_distance * 0.25:  # gazebo: 0.25, real: 0.75
-            curvature = self.prev_curvature if hasattr(self, 'prev_curvature') else 0.0
-        else:
+        if ld > self.lookahead_distance * 0.25:
+            # ========== Pure Pursuit 모드 (부드러움 우선) ==========
             # 차량의 heading 기준 lookahead point의 좌표
             x_r = math.cos(yaw) * dx + math.sin(yaw) * dy
             y_r = -math.sin(yaw) * dx + math.cos(yaw) * dy
             curvature = 2.0 * y_r / (ld ** 2)
-            self.prev_curvature = curvature
+        else:
+            # ========== 정렬 모드 (정확성 우선) ==========
+            # 다음 실제 웨이포인트를 타겟으로 설정
+            if self.current_waypoint_idx < len(self.waypoints):
+                target_wp = self.waypoints[self.current_waypoint_idx]
+            else:
+                # 마지막 웨이포인트 사용
+                target_wp = self.waypoints[-1]
+            
+            # 타겟 웨이포인트 방향 계산
+            dx_target = target_wp[0] - x
+            dy_target = target_wp[1] - y
+            ld_target = np.hypot(dx_target, dy_target)
+            
+            if ld_target > 0.01:  # 거의 도착한 경우 방지
+                # 차량 좌표계로 변환
+                x_r_target = math.cos(yaw) * dx_target + math.sin(yaw) * dy_target
+                y_r_target = -math.sin(yaw) * dx_target + math.cos(yaw) * dy_target
+                # 정렬 곡률 계산
+                curvature = 2.0 * y_r_target / (ld_target ** 2)
+            else:
+                curvature = 0.0
         
+        # 속도 명령 생성
         twist = Twist()
         if self.rotate_flag == 1:
             twist.linear.x = 0.1

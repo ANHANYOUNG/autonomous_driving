@@ -74,6 +74,7 @@ class AppWiFiReceiver(Node):
         # ROS2 퍼블리셔 생성
         self.sw_bits_pub = self.create_publisher(String, '/app/sw_bits', 10)
         self.key_bits_pub = self.create_publisher(String, '/app/key_bits', 10)
+        self.speed_bits_pub = self.create_publisher(String, '/app/speed_bits', 10)
         self.raw_app_data_pub = self.create_publisher(String, '/app/raw_data', 10)
         
         # HTTP 서버 설정
@@ -135,6 +136,13 @@ class AppWiFiReceiver(Node):
                 key_msg.data = str(json_data['key_bits'])
                 self.key_bits_pub.publish(key_msg)
                 self.get_logger().debug(f'[WIFI_RX] Published key_bits: {json_data["key_bits"]}')
+
+            # speed_bits 속도 조절 데이터 발행
+            if 'speed_bits' in json_data:
+                speed_msg = String()
+                speed_msg.data = str(json_data['speed_bits'])
+                self.speed_bits_pub.publish(speed_msg)
+                self.get_logger().info(f'[WIFI_RX] Received speed_bits: {json_data["speed_bits"]}')
 
             # 통계 로그 (10개마다 출력)
             if self.data_count % 10 == 0:

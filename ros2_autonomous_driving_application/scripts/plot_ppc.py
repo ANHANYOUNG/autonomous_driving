@@ -31,6 +31,26 @@ class PlotPPC(Node):
     def __init__(self):
         super().__init__('ppc_plotter')
         
+        # ========== 파라미터 선언 (런치 인자로부터 받음) ==========
+        self.declare_parameter('motor_script', 'motor_cmd_vel_sim_2.py')
+        self.declare_parameter('lookahead_distance', 1.5)
+        
+        # 파라미터 값 가져오기
+        self.motor_script = self.get_parameter('motor_script').get_parameter_value().string_value
+        self.lookahead_distance = self.get_parameter('lookahead_distance').get_parameter_value().double_value
+        
+        # motor_script → strategy_name 매핑
+        self.strategy_map = {
+            'motor_cmd_vel_sim.py': 'Baseline',
+            'motor_cmd_vel_sim_1.py': 'Proportional',
+            'motor_cmd_vel_sim_2.py': 'Angular_Priority',
+        }
+        self.strategy_name = self.strategy_map.get(self.motor_script, 'Unknown')
+        
+        self.get_logger().info(
+            f'[PLOT_PPC] Metadata: Strategy={self.strategy_name}, Ld={self.lookahead_distance}m'
+        )
+        
         # ========== Subscribers ==========
         # 기본 데이터
         self.create_subscription(Path, '/waypoints_path', self.waypoints_callback, 10)
@@ -73,6 +93,7 @@ class PlotPPC(Node):
         self.CTE_OUT = 0.20      # 이탈 임계값 (m)
         self.CTE_IN = 0.08       # 복귀 임계값 (m)
         self.HE_IN = 12.0        # 헤딩 오차 복귀 임계값 (degrees)
+        self.HE_OUT = 20.0       # 헤딩 오차 이탈 임계값 (degrees)
         self.T_HOLD = 0.5        # 최소 유지 시간 (s)
         self.TTR_TIMEOUT = 10.0  # 회복 타임아웃 (s)
         self.TTR_COOLDOWN = 0.5  # 연속 이벤트 방지 쿨다운 (s)
@@ -83,8 +104,11 @@ class PlotPPC(Node):
         self.recovery_start = None # 복귀 조건 시작 시간
         self.last_ttr_event = None # 마지막 TTR 이벤트 시간 (쿨다운용)
         
+        # TTR 위치 추적 (✅ 추가)
+        self.pose_at_t_out = None  # 이탈 시점의 (x, y) 좌표
+        
         # TTR 기록
-        self.ttr_events = []  # [(t_out, t_in, TTR, success), ...]
+        self.ttr_events = []  # [(t_out, t_in, TTR, success, pose_out, pose_in), ...]
         
         # 이동평균 필터 (센서 노이즈 제거)
         self.cte_filter = deque(maxlen=3)     # 3샘플 이동평균
@@ -219,12 +243,25 @@ class PlotPPC(Node):
         if self.ttr_state == "normal":
             # 이탈 감지
             if current_cte > self.CTE_OUT:
-                self.ttr_state = "off track"
-                self.t_out = current_time
-                self.recovery_start = None
-                self.get_logger().info(
-                    f'[TTR] off track detected at t={current_time:.2f}s, CTE={current_cte:.3f}m'
-                )
+                if self.current_state == "move": # MOVE 상태일 때 off track 조건 CTE+HE
+                    if abs(heading_error) > self.HE_OUT:
+                        self.ttr_state = "off track"
+                        self.t_out = current_time
+                        self.recovery_start = None
+                        # ✅ 이탈 시점의 위치 저장
+                        self.pose_at_t_out = self.current_pose if self.current_pose else None
+                        self.get_logger().info(
+                            f'[TTR] off track detected at t={current_time:.2f}s, CTE={current_cte:.3f}m, HE={heading_error:.1f}°'
+                        )
+                else: # ROTATE 상태일 때 off track 조건 CTE만
+                    self.ttr_state = "off track"
+                    self.t_out = current_time
+                    self.recovery_start = None
+                    # ✅ 이탈 시점의 위치 저장
+                    self.pose_at_t_out = self.current_pose if self.current_pose else None
+                    self.get_logger().info(
+                        f'[TTR] off track detected at t={current_time:.2f}s, CTE={current_cte:.3f}m, HE={heading_error:.1f}°'
+                    )
         
         elif self.ttr_state == "off track":
             # 타임아웃 체크
@@ -237,12 +274,15 @@ class PlotPPC(Node):
                     't_in': None,
                     'TTR': None,
                     'success': False,
-                    'reason': 'timeout'
+                    'reason': 'timeout',
+                    'pose_out': list(self.pose_at_t_out) if self.pose_at_t_out else None,  # ✅ 위치 추가
+                    'pose_in': None
                 })
                 # 상태 리셋
                 self.ttr_state = "normal"
                 self.t_out = None
                 self.recovery_start = None
+                self.pose_at_t_out = None  # ✅ 리셋
                 self.last_ttr_event = current_time
                 return
             
@@ -286,13 +326,16 @@ class PlotPPC(Node):
                     'TTR': ttr,
                     'success': True,
                     'cte_max': max([v for v in self.cte_values if v is not None], default=0),
-                    'hold_duration': hold_duration
+                    'hold_duration': hold_duration,
+                    'pose_out': list(self.pose_at_t_out) if self.pose_at_t_out else None,  # ✅ 위치 추가
+                    'pose_in': list(self.current_pose) if self.current_pose else None      # ✅ 위치 추가
                 })
                 
                 # 상태 리셋
                 self.ttr_state = "normal"
                 self.t_out = None
                 self.recovery_start = None
+                self.pose_at_t_out = None  # ✅ 리셋
                 self.last_ttr_event = current_time
     
     # ========== Plot Setup ==========
@@ -560,6 +603,12 @@ class PlotPPC(Node):
             
             data = {
                 'timestamp': timestamp,
+                # ✅ metadata 블록 추가
+                'metadata': {
+                    'strategy_name': self.strategy_name,
+                    'lookahead_distance': self.lookahead_distance,
+                    'motor_script': self.motor_script
+                },
                 'waypoints': self.waypoints,
                 'actual_path': list(self.actual_path),
                 'cte_values': list(self.cte_values),
@@ -576,7 +625,10 @@ class PlotPPC(Node):
             with open(filename, 'w') as f:
                 json.dump(data, f, indent=2)
 
-            self.get_logger().info(f'[PLOT_PPC] Run data saved: {filename}')
+            self.get_logger().info(
+                f'[PLOT_PPC] Run data saved: {filename}\n'
+                f'  Strategy: {self.strategy_name}, Ld: {self.lookahead_distance}m'
+            )
 
             # TTR 통계 로그 출력
             if ttr_stats['total_events'] > 0:

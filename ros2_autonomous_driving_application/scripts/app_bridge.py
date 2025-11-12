@@ -17,10 +17,15 @@ class AppBridge(Node):
         self.get_logger().info('App Bridge node has been started.')
 
         # 1. 파라미터 선언 (속도 값)
-        self.declare_parameter('forward_speed', 0.5)
+        self.declare_parameter('low_speed', 0.1)
+        self.declare_parameter('medium_speed', 0.2)
+        self.declare_parameter('high_speed', 0.3)
         self.declare_parameter('turn_speed', 0.3)
-        self.forward_speed = self.get_parameter('forward_speed').get_parameter_value().double_value
+        self.low_speed = self.get_parameter('low_speed').get_parameter_value().double_value
+        self.medium_speed = self.get_parameter('medium_speed').get_parameter_value().double_value
+        self.high_speed = self.get_parameter('high_speed').get_parameter_value().double_value
         self.turn_speed = self.get_parameter('turn_speed').get_parameter_value().double_value
+        self.current_speed = self.medium_speed  # 초기 속도 설정
 
         # 2. Publishers
         self.state_command_pub = self.create_publisher(String, '/state_command', 10)
@@ -29,6 +34,7 @@ class AppBridge(Node):
         # 3. Subscribers
         self.create_subscription(String, '/app/sw_bits', self.sw_bits_callback, 10)
         self.create_subscription(String, '/app/key_bits', self.key_bits_callback, 10)
+        self.create_subscription(String, '/app/speed_bits', self.speed_bits_callback, 10)
         
         # state_manager가 발행하는 마스터 상태를 구독
         self.create_subscription(String, '/robot_state', self.robot_state_callback, 10)
@@ -93,9 +99,9 @@ class AppBridge(Node):
         
         # 3. 'KEY' 상태일 때 이동 명령 매핑
         if cleaned_bits == "1000":  # 앞
-            twist_msg.linear.x = self.forward_speed
+            twist_msg.linear.x = self.current_speed
         elif cleaned_bits == "0100":  # 뒤
-            twist_msg.linear.x = -self.forward_speed
+            twist_msg.linear.x = -self.current_speed
         elif cleaned_bits == "0010":  # 좌
             twist_msg.angular.z = self.turn_speed
         elif cleaned_bits == "0001":  # 우
@@ -105,8 +111,24 @@ class AppBridge(Node):
                 f'[AppBridge] Received unknown key_bits: "{cleaned_bits}"', 
                 throttle_duration_sec=5.0)
             return
-
         self.cmd_vel_pub.publish(twist_msg)
+
+    def speed_bits_callback(self, msg):
+        """ /app/speed_bits를 수신하여 속도 조절 """
+        cleaned_bits = msg.data.replace('"', '')
+        new_speed = self.medium_speed
+        if cleaned_bits == "100":  # 저
+            new_speed = self.low_speed
+        elif cleaned_bits == "010":  # 중
+            new_speed = self.medium_speed
+        elif cleaned_bits == "001":  # 고
+            new_speed = self.high_speed
+        else:
+            self.get_logger().warn(f'[AppBridge] Received unknown speed_bits: "{cleaned_bits}"', throttle_duration_sec=5.0)
+            
+        if new_speed != self.current_speed:
+            self.current_speed = new_speed
+            self.get_logger().info(f'[AppBridge] Speed set to {self.current_speed:.2f} m/s')
 
 def main(args=None):
     rclpy.init(args=args)

@@ -40,11 +40,14 @@ install(PROGRAMS
   scripts/cmd_send.py
   scripts/pure_pursuit_controller_v2.py
   scripts/motor_cmd_vel_trx_v2.py
+  scripts/motor_cmd_vel_sim.py
+  scripts/motor_cmd_vel_sim_1.py
+  scripts/motor_cmd_vel_sim_2.py
   scripts/app_bridge.py
   scripts/imu_offset.py
   scripts/plot_calibration.py
   scripts/plot_ppc.py
-  
+  scripts/ppc.py
   DESTINATION lib/${PROJECT_NAME}
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
 )
