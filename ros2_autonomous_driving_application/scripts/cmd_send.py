@@ -42,15 +42,12 @@ HELP_TEXT = (
 
 
 class StateCommandPublisher(Node):
-    """상시 실행되며 /state_command 에 문자열 명령을 퍼블리시하는 노드."""
-
     def __init__(self, topic_name: str = "/state_command"):
         super().__init__("state_command_publisher")
         self.pub = self.create_publisher(String, topic_name, 10)
         self.get_logger().info(f"[CMD_SEND] State command publisher ready → {topic_name}")
 
     def publish_command(self, text: str, repeat: int = 1, rate_hz: float = 0.0):
-        """한 명령을 여러 번(옵션) 발행. rate_hz>0면 해당 주기로 반복 발행."""
         if text not in VALID_COMMANDS:
             self.get_logger().warn(
                 f"[CMD_SEND] Unknown command: '{text}'. Allowed: {sorted(list(VALID_COMMANDS))}"
@@ -69,7 +66,6 @@ class StateCommandPublisher(Node):
                 time.sleep(sleep_dt)
 
 def interactive_shell(repeat: int, rate_hz: float):
-    """대화형 모드: 프롬프트에서 명령 입력 → 즉시 발행."""
     rclpy.init()
     node = StateCommandPublisher()
     node.get_logger().info(

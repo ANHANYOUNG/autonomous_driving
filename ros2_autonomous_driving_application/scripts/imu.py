@@ -31,19 +31,16 @@ ACC_ID, GYRO_ID, ANGLE_ID = 0x51, 0x52, 0x53  # 각 데이터 타입(가속도, 
 
 # Helper
 def le_i16(lo: int, hi: int) -> int:
-    """리틀 엔디안 형식의 2바이트(low, high)를 16비트 부호 있는 정수로 변환합니다."""
     # high 바이트를 8비트 왼쪽으로 시프트하고 low 바이트와 OR 연산을 하여 16비트 값을 만듭니다.
     v = (hi << 8) | lo
     # 최상위 비트(MSB)가 1이면 음수이므로, 2의 보수법에 따라 실제 음수 값으로 변환합니다.
     return v - 0x10000 if v & 0x8000 else v
 
 def checksum_ok(pkt: bytes) -> bool:
-    """수신된 패킷의 체크섬이 유효한지 확인합니다."""
     # 프로토콜 명세에 따라, 처음 10바이트의 합을 255로 나눈 나머지가 마지막 11번째 바이트(체크섬)와 같아야 합니다.
     return (sum(pkt[:10]) & 0xFF) == pkt[10]
 
 def rpy_deg_to_quat(roll_d: float, pitch_d: float, yaw_d: float):
-    """오일러 각도(Roll, Pitch, Yaw)를 쿼터니언으로 변환합니다."""
     # ROS의 Imu 메시지는 방향을 쿼터니언으로 표현하므로 변환이 필요합니다.
     # 쿼터니언은 짐벌락(Gimbal Lock) 현상이 없어 3D 회전 표현에 더 안정적입니다.
     # 먼저 각도를 라디안으로 변환하고 계산을 간단히 하기 위해 2로 나눕니다.
@@ -67,11 +64,6 @@ def rpy_deg_to_quat(roll_d: float, pitch_d: float, yaw_d: float):
 # ==============================================================================
 
 class WT901CNode(Node):
-    """
-    WT901C IMU 센서로부터 데이터를 읽어 파싱하고, ROS 2의 Imu 메시지 형식으로 발행하는 노드.
-    가장 단순한 형태로, 가속도(ACC), 각속도(GYRO), 각도(ANGLE) 데이터가 한 세트로 모두 수신되면
-    하나의 Imu 메시지를 발행하는 구조입니다.
-    """
     def __init__(self):
         # rclpy.node.Node 클래스의 생성자를 호출하고 노드 이름을 'wt901c_imu_node'로 설정합니다.
         super().__init__('wt901c_imu_node')
@@ -101,7 +93,6 @@ class WT901CNode(Node):
         self.get_logger().info(f'[IMU] 시리얼 포트 {SERIAL_PORT} @ {BAUDRATE}bps, frame_id={FRAME_ID}')
 
     def poll(self):
-        """타이머에 의해 주기적으로 호출되어 시리얼 포트에서 데이터를 읽고 버퍼에 추가합니다."""
         try:
             # 시리얼 버퍼에 수신 대기 중인 모든 데이터(in_waiting)를 읽어옵니다. 데이터가 없으면 1바이트만 읽으려 시도합니다.
             data = self.ser.read(self.ser.in_waiting or 1)
@@ -115,7 +106,6 @@ class WT901CNode(Node):
             self.get_logger().error(f'[IMU] 시리얼 읽기 오류: {e}')
 
     def _parse_buffer(self):
-        """내부 버퍼(self.buf)를 파싱하여 유효한 11바이트 패킷들을 처리합니다."""
         b = self.buf
         while True:
             # 패킷 시작을 알리는 헤더(0x55)를 찾습니다.
@@ -156,7 +146,6 @@ class WT901CNode(Node):
                 self.have_acc = self.have_gyro = self.have_ang = False
 
     def _parse_packet(self, pkt: bytes):
-        """하나의 유효한 패킷을 파싱하여 클래스 변수에 데이터를 저장합니다."""
         typ = pkt[1]  # 패킷의 두 번째 바이트는 데이터 타입을 나타냅니다.
         d0,d1,d2,d3,d4,d5,d6,d7 = pkt[2:10] # 실제 데이터 부분
         x = le_i16(d0, d1)
@@ -186,7 +175,6 @@ class WT901CNode(Node):
         # 그 외 자력계 등 다른 타입의 패킷은 이 예제에서 무시합니다.
 
     def publish(self):
-        """파싱된 최신 데이터를 사용하여 Imu 메시지를 생성하고 발행합니다."""
         now = self.get_clock().now().to_msg() # 현재 ROS 시간을 가져옵니다.
         msg = Imu()
         msg.header = Header(stamp=now, frame_id=FRAME_ID)

@@ -43,6 +43,7 @@ install(PROGRAMS
   scripts/motor_cmd_vel_sim.py
   scripts/motor_cmd_vel_sim_1.py
   scripts/motor_cmd_vel_sim_2.py
+  scripts/motor_cmd_vel_sim_3.py
   scripts/app_bridge.py
   scripts/imu_offset.py
   scripts/plot_calibration.py

@@ -32,7 +32,7 @@ def generate_launch_description():
     motor_script_arg = DeclareLaunchArgument(
         'motor_script',
         default_value='motor_cmd_vel_sim_2.py',
-        description='Motor control script: motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py'
+        description='Motor control script: motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py, motor_cmd_vel_sim_3.py'
     )
     
     # Lookahead Distance
@@ -106,7 +106,7 @@ def generate_launch_description():
         name='pure_pursuit_controller',
         parameters=[
             {'use_sim_time': use_sim_time},
-            {'lookahead_distance': ld}  # ✅ Ld 런치 인자 주입
+            {'lookahead_distance': ld}  #  Ld 런치 인자 주입
         ]
     )
     
@@ -138,7 +138,7 @@ def generate_launch_description():
     # # 7. 실제 센서 및 드라이버 노드들
     motor_cmd_vel_trx_node = Node(
         package='ros2_autonomous_driving_application',
-        executable=motor_script,  # ✅ 런치 인자로 스크립트 선택
+        executable=motor_script,  #  런치 인자로 스크립트 선택
         name='motor_cmd_vel_trx_node',
         output='screen',
         parameters=[{'use_sim_time': use_sim_time}]
@@ -210,8 +210,8 @@ def generate_launch_description():
         output = 'screen',
         parameters = [
             {'use_sim_time': use_sim_time},
-            {'motor_script': motor_script},  # ✅ 런치 인자 전달
-            {'lookahead_distance': ld}       # ✅ 런치 인자 전달
+            {'motor_script': motor_script},  #  런치 인자 전달
+            {'lookahead_distance': ld}       #  런치 인자 전달
         ]
     )
 
@@ -219,8 +219,8 @@ def generate_launch_description():
     return LaunchDescription([
         ### --- 4. 런치 인자를 실행 목록에 추가 --- ###
         use_sim_time_arg,
-        motor_script_arg,  # ✅ 추가
-        ld_arg,            # ✅ 추가
+        motor_script_arg,  #  추가
+        ld_arg,            #  추가
         
         # --- 노드 실행 목록 ---
         # 속도 선택

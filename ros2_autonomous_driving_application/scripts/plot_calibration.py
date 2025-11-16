@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""
-캘리브레이션 데이터 시각화 스크립트
 
-사용법:
-  python3 plot_calibration.py                    # 가장 최근 데이터 plot
-  python3 plot_calibration.py 20251101_143025    # 특정 타임스탬프 plot
-  python3 plot_calibration.py --list             # 저장된 데이터 목록
-"""
 
 import os
 import sys
@@ -19,7 +12,6 @@ from pathlib import Path
 
 
 def load_calibration_data(data_dir, timestamp=None):
-    """캘리브레이션 데이터 로드"""
     data_dir = Path(data_dir).expanduser()
     
     if timestamp is None:
@@ -44,7 +36,6 @@ def load_calibration_data(data_dir, timestamp=None):
 
 
 def plot_calibration(data, save_path=None):
-    """캘리브레이션 데이터 시각화"""
     points = np.array(data['points'])
     results = data.get('results', {})
     params = data.get('parameters', {})
@@ -171,7 +162,6 @@ Trajectory Stats:
 
 
 def list_calibration_data(data_dir):
-    """저장된 캘리브레이션 데이터 목록 출력"""
     data_dir = Path(data_dir).expanduser()
     json_files = sorted(data_dir.glob('cal_*.json'))
     

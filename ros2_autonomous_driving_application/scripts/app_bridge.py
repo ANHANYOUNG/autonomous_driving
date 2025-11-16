@@ -4,19 +4,14 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from geometry_msgs.msg import Twist
-# [신규] QoS 프로파일을 위해 필요한 클래스들을 임포트합니다.
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
 class AppBridge(Node):
-    """
-    앱 인벤터의 신호('/app/...')를 ROS2 표준 토픽('/state_command', '/cmd_vel')으로
-    변환(Bridge)하는 노드
-    """
     def __init__(self):
         super().__init__('app_bridge_node')
         self.get_logger().info('App Bridge node has been started.')
 
-        # 1. 파라미터 선언 (속도 값)
+        # 1. Parameters
         self.declare_parameter('low_speed', 0.1)
         self.declare_parameter('medium_speed', 0.2)
         self.declare_parameter('high_speed', 0.3)
@@ -41,7 +36,7 @@ class AppBridge(Node):
 
         # 4. 내부 상태 및 중복 발행 방지 변수
         self.last_mode_command = None
-        self.current_robot_state = "STOP"  #초기 상태를 "STOP"
+        self.current_robot_state = "STOP"  #초기 상태를 STOP
 
         self.get_logger().info('[AppBridge] App Bridge is ready to translate app commands.')
 
@@ -51,7 +46,6 @@ class AppBridge(Node):
 
     # /app/sw_bits 토픽을 수신하여 모드 명령으로 변환하는 콜백 함수
     def sw_bits_callback(self, msg):
-        """ /app/sw_bits를 수신하여 모드(상태) 명령으로 변환합니다. """
         cleaned_bits = msg.data.replace('"', '')
         
         command_list = {
@@ -75,22 +69,21 @@ class AppBridge(Node):
 
     # /app/key_bits 토픽을 수신하여 Twist 속도 명령으로 변환하는 콜백 함수
     def key_bits_callback(self, msg):
-        """ /app/key_bits를 수신하여 Twist 속도 명령으로 변환합니다. """
-        # [수정] 'KEY' 상태에서는 모든 조작을, 'STOP' 상태에서는 '정지' 비트만 처리합니다.
+        # [수정] 'KEY' 상태에서는 모든 조작을, 'STOP' 상태에서는 '정지' 비트만 처리
 
         cleaned_bits = msg.data.replace('"', '')
         twist_msg = Twist()
 
         # 1. 정지 명령("0000")인 경우
         if cleaned_bits == "0000":
-            # 'KEY' 상태이거나 'STOP' 상태일 때만 정지 명령을 발합니다.
+            # 'KEY' 상태이거나 'STOP' 상태일 때만 정지 명령을 발행
             if self.current_robot_state in ['KEY', 'STOP']:
                 self.cmd_vel_pub.publish(twist_msg)
             # RUN이나 CAL 상태라면, 수동 정지 명령을 무시
             return
         
         # 2. 이동 명령("0000"이 아닌)인 경우
-        # [수정] 이동 명령은 'KEY' 상태일 때만 처리합니다.
+        # [수정] 이동 명령은 'KEY' 상태일 때만 처리
         if self.current_robot_state != 'KEY':
             self.get_logger().warn(
                 f'[AppBridge] Ignoring movement key_bits in "{self.current_robot_state}" state.', 
@@ -114,7 +107,6 @@ class AppBridge(Node):
         self.cmd_vel_pub.publish(twist_msg)
 
     def speed_bits_callback(self, msg):
-        """ /app/speed_bits를 수신하여 속도 조절 """
         cleaned_bits = msg.data.replace('"', '')
         new_speed = self.medium_speed
         if cleaned_bits == "100":  # 저

@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""
-가상 모터 드라이버 - 방식 1: 비례 클리핑 (v:w 비율 유지)
-
-특징:
-  - 회전 반경(v/w 비율)을 유지하는 데 초점
-  - v와 w 모두 동일한 비율로 감속
-단점:
-  - Pure Pursuit 경로 추종 시 w가 줄어들어 경로 이탈 발생
-  - 코너를 다 돌지 못하고 넓게 회전
-"""
+"""비례적 클리핑"""
 
 import rclpy
 from rclpy.node import Node
@@ -19,7 +10,7 @@ class MotorCmdVelSim1(Node):
     def __init__(self):
         super().__init__('motor_cmd_vel_sim_1')
         
-        # ========== 파라미터 선언 ==========
+        # ========== Parameters ==========
         self.declare_parameter('wheel_radius', 0.1)
         self.declare_parameter('wheel_base', 1.5)
         self.declare_parameter('gear_ratio', 60.0)
@@ -51,40 +42,31 @@ class MotorCmdVelSim1(Node):
         )
     
     def cmd_vel_callback(self, msg: Twist):
-        """
-        방식 1: 비례 클리핑 (v:w 비율 유지)
-        
-        Step 1: (v, w) → 목표 RPM
-        Step 2: 초과 비율(scale) 계산
-        Step 3: v와 w를 동일 비율로 감속
-        Step 4: 감속된 Twist 발행
-        """
         v = msg.linear.x
         w = msg.angular.z
         
-        # Step 1: Twist → 목표 RPM
+        # 목표 RPM
         v_left_ms = v - (w * self.wheel_base * 0.5)
         v_right_ms = v + (w * self.wheel_base * 0.5)
         
         if self.wheel_circumference == 0:
-            self.get_logger().error('[MOTOR_SIM_1] Wheel circumference is zero!')
+            self.get_logger().error('[MOTOR_SIM_1] Wheel circumference is zero')
             return
         
         target_rpm_left = (v_left_ms * 60.0 * self.gear_ratio) / self.wheel_circumference
         target_rpm_right = (v_right_ms * 60.0 * self.gear_ratio) / self.wheel_circumference
         
-        # Step 2: 초과 비율 계산
+        # 초과 비율 계산
         max_rpm_abs = max(abs(target_rpm_left), abs(target_rpm_right))
         
         if max_rpm_abs > self.max_motor_rpm:
-            # 초과 비율 계산 (예: 2400 / 2000 = 1.2 → 20% 초과)
             scale = self.max_motor_rpm / max_rpm_abs
             
-            # Step 3: RPM에 scale 적용 (실제 모터 동작)
+            # RPM에 scale 적용 (실제 모터 동작)
             actual_rpm_left = target_rpm_left * scale
             actual_rpm_right = target_rpm_right * scale
             
-            # Step 4: 클리핑된 RPM → (v, w) 역변환 (Gazebo 전달용)
+            # 클리핑된 RPM → (v, w) 역변환 (Gazebo 전달용)
             # RPM → 휠 선속도 (m/s)
             v_left_ms_actual = (actual_rpm_left * self.wheel_circumference) / (60.0 * self.gear_ratio)
             v_right_ms_actual = (actual_rpm_right * self.wheel_circumference) / (60.0 * self.gear_ratio)
@@ -109,7 +91,6 @@ class MotorCmdVelSim1(Node):
             actual_rpm_left = target_rpm_left
             actual_rpm_right = target_rpm_right
         
-        # Step 5: Twist 발행
         output_twist = Twist()
         output_twist.linear.x = v_actual
         output_twist.angular.z = w_actual
