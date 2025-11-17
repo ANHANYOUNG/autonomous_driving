@@ -13,7 +13,6 @@ from std_msgs.msg import String
 # ------------------------------------------------------------
 # 빠른 모드 전환을 위해 만든 파일
 # (1) 허용 명령 목록
-#     - 새 명령을 추가/삭제하려면 아래 집합만 수정하세요.
 # ------------------------------------------------------------
 VALID_COMMANDS = {
     # 상위 상태 전환
@@ -24,7 +23,7 @@ VALID_COMMANDS = {
     "ALIGN",
     "STOP",
     "AUTO_START",
-    "path_A",   # ← 여기에 새 명령을 추가하세요 (예: "path_C")
+    "path_A",   # ← 여기에 새 명령을 추가
     "path_B",
 }
 # ------------------------------------------------------------
@@ -75,13 +74,12 @@ def interactive_shell(repeat: int, rate_hz: float):
 
     try:
         while rclpy.ok():
-            # DDS 이벤트 처리(필요시). 블로킹 없이 0초로 호출.
             rclpy.spin_once(node, timeout_sec=0.0)
 
             sys.stdout.write("> ")
             sys.stdout.flush()
             line = sys.stdin.readline()
-            if not line:  # EOF
+            if not line: 
                 break
 
             raw = line.strip()

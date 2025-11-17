@@ -7,11 +7,6 @@ from geometry_msgs.msg import Twist
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
 class StateManager(Node):
-    """
-    - 사용자 명령, 수동 개입, 자율주행 완료 신호를 감지합니다.
-    - 시스템의 마스터 상태(STOP, RUN, KEY, ALIGN, CALIBRATION)를 결정합니다.
-    - 결정된 상태를 '/robot_state' 토픽으로 발행합니다.
-    """
     def __init__(self):
         super().__init__('state_manager_node')
         self.get_logger().info('[STATE_MANAGER] State Manager (Brain) has been started.')
@@ -34,7 +29,7 @@ class StateManager(Node):
 
     # 상태 업데이트
     def _update_state(self, new_state, force_publish=False):
-        """ 상태를 안전하게 업데이트하고 전파합니다. """
+        """ 상태를 안전하게 업데이트하고 전파"""
         if new_state == self.state and not force_publish:
             return
 
@@ -68,10 +63,6 @@ class StateManager(Node):
 
     # robot_state 토픽을 주기적으로 발행
     def publish_state_loop(self):
-        """
-        1초마다 현재 상태를 '/robot_state' 토픽으로 계속 발행합니다.
-        이를 통해 네트워크 지연이나 노드 재시작 시에도 상태 동기화를 보장합니다.
-        """
         state_msg = String()
         state_msg.data = self.state
         self.state_pub.publish(state_msg)

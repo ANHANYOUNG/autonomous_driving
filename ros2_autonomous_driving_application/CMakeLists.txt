@@ -49,6 +49,7 @@ install(PROGRAMS
   scripts/plot_calibration.py
   scripts/plot_ppc.py
   scripts/ppc.py
+  scripts/ppc_2.py
   DESTINATION lib/${PROJECT_NAME}
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
 )
