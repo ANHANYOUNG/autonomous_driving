@@ -83,7 +83,7 @@ def generate_launch_description():
     
     state_machine_node = Node(
         package='ros2_autonomous_driving_application',
-        executable='state_machine.py',
+        executable='state_machine_for_cal.py',
         name='state_machine_executor',
         parameters=[
             path_config,

@@ -33,6 +33,10 @@ class MotorCmdVelSim1(Node):
         
         self.wheel_circumference = 2.0 * math.pi * self.wheel_radius
         
+        # 이전 명령 값 저장 (변화 감지용)
+        self.prev_v_actual = None
+        self.prev_w_actual = None
+        
         self.get_logger().info(
             f'[MOTOR_SIM_1] Virtual Motor Driver (Ratio Clipping) started\n'
             f'  - Wheel Radius: {self.wheel_radius} m\n'
@@ -96,13 +100,16 @@ class MotorCmdVelSim1(Node):
         output_twist.angular.z = w_actual
         self.cmd_vel_pub.publish(output_twist)
         
-        self.get_logger().info(
-            f'[MOTOR_SIM_1] Input: v={v:.3f}, w={w:.3f} | '
-            f'Target RPM: L={target_rpm_left:.0f}, R={target_rpm_right:.0f} | '
-            f'Actual RPM: L={actual_rpm_left:.0f}, R={actual_rpm_right:.0f} | '
-            f'Output: v={v_actual:.3f}, w={w_actual:.3f}',
-            throttle_duration_sec=0.5
-        )
+        # 값이 변했을 때만 로그 출력
+        if self.prev_v_actual != v_actual or self.prev_w_actual != w_actual:
+            self.get_logger().info(
+                f'[MOTOR_SIM_1] Input: v={v:.3f}, w={w:.3f} | '
+                f'Target RPM: L={target_rpm_left:.0f}, R={target_rpm_right:.0f} | '
+                f'Actual RPM: L={actual_rpm_left:.0f}, R={actual_rpm_right:.0f} | '
+                f'Output: v={v_actual:.3f}, w={w_actual:.3f}'
+            )
+            self.prev_v_actual = v_actual
+            self.prev_w_actual = w_actual
     
     def destroy_node(self):
         self.get_logger().info('[MOTOR_SIM_1] Shutting down...')

@@ -39,6 +39,10 @@ class MotorCmdVelSim2(Node):
         max_wheel_velocity = self.max_linear_velocity
         self.max_angular_velocity = (2.0 * max_wheel_velocity) / self.wheel_base
         
+        # 이전 명령 값 저장 (변화 감지용)
+        self.prev_v_final = None
+        self.prev_w_final = None
+        
         self.get_logger().info(
             f'[MOTOR_SIM_2] Virtual Motor Driver (w priority) started\n'
             f'  - Wheel Radius: {self.wheel_radius} m\n'
@@ -130,20 +134,23 @@ class MotorCmdVelSim2(Node):
         output_twist.angular.z = w_final
         self.cmd_vel_pub.publish(output_twist)
         
-        # 입력 대비 출력 로그
-        v_left_cmd = v_cmd - (w_cmd * self.wheel_base * 0.5)
-        v_right_cmd = v_cmd + (w_cmd * self.wheel_base * 0.5)
-        rpm_left_cmd = (v_left_cmd * 60.0 * self.gear_ratio) / self.wheel_circumference
-        rpm_right_cmd = (v_right_cmd * 60.0 * self.gear_ratio) / self.wheel_circumference
-        
-        self.get_logger().info(
-            f'[MOTOR_SIM_2] '
-            f'Input: v={v_cmd:.3f}, w={w_cmd:.3f} → '
-            f'Output: v={v_final:.3f}, w={w_final:.3f} | '
-            f'Target RPM: L={rpm_left_cmd:.0f}, R={rpm_right_cmd:.0f} → '
-            f'Actual RPM: L={rpm_left:.0f}, R={rpm_right:.0f} (max={self.max_motor_rpm:.0f})',
-            throttle_duration_sec=0.5
-        )
+        # 값이 변했을 때만 로그 출력
+        if self.prev_v_final != v_final or self.prev_w_final != w_final:
+            # 입력 대비 출력 로그
+            v_left_cmd = v_cmd - (w_cmd * self.wheel_base * 0.5)
+            v_right_cmd = v_cmd + (w_cmd * self.wheel_base * 0.5)
+            rpm_left_cmd = (v_left_cmd * 60.0 * self.gear_ratio) / self.wheel_circumference
+            rpm_right_cmd = (v_right_cmd * 60.0 * self.gear_ratio) / self.wheel_circumference
+            
+            self.get_logger().info(
+                f'[MOTOR_SIM_2] '
+                f'Input: v={v_cmd:.3f}, w={w_cmd:.3f} → '
+                f'Output: v={v_final:.3f}, w={w_final:.3f} | '
+                f'Target RPM: L={rpm_left_cmd:.0f}, R={rpm_right_cmd:.0f} → '
+                f'Actual RPM: L={rpm_left:.0f}, R={rpm_right:.0f} (max={self.max_motor_rpm:.0f})'
+            )
+            self.prev_v_final = v_final
+            self.prev_w_final = w_final
     
     def destroy_node(self):
         self.get_logger().info('[MOTOR_SIM_2] Shutting down...')

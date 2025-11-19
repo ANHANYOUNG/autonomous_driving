@@ -352,18 +352,28 @@ class PurePursuitNode(Node):
         # 상태가 변경될 때만 로그 출력
         if self.is_enabled != msg.data:
             if msg.data:
-                # 재활성화 시 미션 완료 플래그 리셋
-                self.mission_completed = False
-                self.current_waypoint_idx = 0
-                self.lookahead_idx = 1
-                self.state = "move"
-                self.get_logger().info('Pure Pursuit [ENABLED]')
+                # ========== RESUME (재개) ==========
+                # 진행 상황을 유지한 채 재활성화
+                # mission_completed가 True면 완전히 새로 시작
+                if self.mission_completed:
+                    self.mission_completed = False
+                    self.current_waypoint_idx = 0
+                    self.lookahead_idx = 1
+                    self.state = "move"
+                    self.get_logger().info('Pure Pursuit [ENABLED] - Starting new mission')
+                else:
+                    # 진행 중이던 위치 유지 (일시정지 해제)
+                    self.get_logger().info(
+                        f'Pure Pursuit [RESUMED] - Continuing from waypoint {self.current_waypoint_idx}'
+                    )
             else:
-                # 비활성화되는 즉시 0 속도를 1회 발행
-                # (twist_mux가 이 토픽을 timeout 처리할 때까지 기다리지 않도록)
+                # ========== PAUSE (일시정지) ==========
+                # 진행 상황은 유지하고 움직임만 멈춤
                 self.cmd_pub.publish(self.zero_twist)
-                self.mission_completed = True
-                self.get_logger().info('Pure Pursuit [DISABLED]')
+                # mission_completed는 건드리지 않음 (기억 유지)
+                self.get_logger().info(
+                    f'Pure Pursuit [PAUSED] - Holding at waypoint {self.current_waypoint_idx}'
+                )
                 
         self.is_enabled = msg.data
 

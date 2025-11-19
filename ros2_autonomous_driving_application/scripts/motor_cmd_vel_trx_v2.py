@@ -51,6 +51,9 @@ class MotorCmdVelTrx(Node):
         self.motor_command = [0, 0]        # 현재 모터 지령값 (RPM)
         self.received_motor_data = [0, 0]  # 수신된 모터 속도 (RPM)
         
+        # 이전 명령 값 저장 (변화 감지용)
+        self.prev_motor_command = None
+        
         # === 4. 시리얼 통신 스레드 (기존과 동일) ===
         self.running = True
         if self.ser:
@@ -124,8 +127,15 @@ class MotorCmdVelTrx(Node):
         rpm_right = (v_right_ms * 60.0 * self.gear_ratio) / circumference
 
         # 최종 모터 지령값(self.motor_command) 업데이트
-        self.motor_command = [int(rpm_left), int(rpm_right)]    
-        self.get_logger().info(f'[MOTOR_CMD_VEL] CmdVel (v={v:.2f}, w={w:.2f}) -> Wheel RPM (L={rpm_left:.0f}, R={rpm_right:.0f})')
+        self.motor_command = [int(rpm_left), int(rpm_right)]
+        
+        # 값이 변했을 때만 로그 출력
+        if self.prev_motor_command != self.motor_command:
+            self.get_logger().info(
+                f'[MOTOR_CMD_VEL] CmdVel (v={v:.2f}, w={w:.2f}) -> '
+                f'Wheel RPM (L={rpm_left:.0f}, R={rpm_right:.0f})'
+            )
+            self.prev_motor_command = self.motor_command.copy()
 
     def destroy_node(self):
         self.get_logger().info('[MOTOR_CMD_VEL] Shutting down Motor Command Velocity Transceiver...')

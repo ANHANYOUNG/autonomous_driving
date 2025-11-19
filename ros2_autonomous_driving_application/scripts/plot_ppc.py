@@ -64,6 +64,7 @@ class PlotPPC(Node):
         self.cmd_linear = 0.0
         self.cmd_angular = 0.0
         self.is_enabled = False
+        self.was_mission_completed = False  # PPC 미션 완료 여부 추적
         
         # 제어 노드에서 받은 진실
         self.lookahead_point = None
@@ -136,25 +137,38 @@ class PlotPPC(Node):
     
     def enable_callback(self, msg: Bool):
         if msg.data and not self.is_enabled:
-            self.actual_path.clear()
-            self.time_stamps.clear()
-            self.cte_values.clear()
-            self.heading_errors.clear()
-            self.start_time = None
-            self.run_start_time = self.get_clock().now()
-            
-            #  TTR 상태 리셋
-            self.ttr_state = "normal"
-            self.t_out = None
-            self.recovery_start = None
-            self.last_ttr_event = None
-            self.ttr_events.clear()
-            self.cte_filter.clear()
-            self.he_filter.clear()
-
-            self.get_logger().info('[PLOT_PPC] PPC Enabled - Recording started')
+            # ========== ENABLE: 시작 또는 재개 ==========
+            # 미션이 완료되었거나 처음 시작하는 경우에만 초기화
+            if self.was_mission_completed or self.start_time is None:
+                self.actual_path.clear()
+                self.time_stamps.clear()
+                self.cte_values.clear()
+                self.heading_errors.clear()
+                self.start_time = None
+                self.run_start_time = self.get_clock().now()
+                
+                # TTR 상태 리셋
+                self.ttr_state = "normal"
+                self.t_out = None
+                self.recovery_start = None
+                self.last_ttr_event = None
+                self.ttr_events.clear()
+                self.cte_filter.clear()
+                self.he_filter.clear()
+                self.pose_at_t_out = None
+                
+                self.was_mission_completed = False
+                
+                self.get_logger().info('[PLOT_PPC] PPC Enabled - NEW mission started')
+            else:
+                # 일시정지 후 재개 - 데이터 유지
+                self.get_logger().info('[PLOT_PPC] PPC RESUMED - Continuing data recording')
+        
         elif not msg.data and self.is_enabled:
-            self.save_run_data()
+            # ========== DISABLE: 일시정지 또는 완료 ==========
+            # 데이터를 저장하지 않고 일시정지만 수행
+            # (미션 완료 시에만 저장하도록 별도 처리 필요)
+            self.get_logger().info('[PLOT_PPC] PPC PAUSED - Data preserved')
         
         self.is_enabled = msg.data
 
@@ -163,13 +177,29 @@ class PlotPPC(Node):
         self.lookahead_point = (msg.pose.position.x, msg.pose.position.y)
     
     def state_callback(self, msg: String):
+        old_state = self.current_state
         self.current_state = msg.data
+        
+        # 미션 완료 감지 (move → 다른 상태 전환 시 마지막 waypoint 도달 확인)
+        # PPC가 미션 완료 후 disable되면 데이터 저장
+        if old_state != "move" and self.current_state == "move":
+            # 미션이 다시 시작되었을 수 있음 (재활성화)
+            pass
     
     def idx_callback(self, msg: Int32):
         self.current_idx = msg.data
 
     def waypoint_idx_callback(self, msg: Int32):
+        old_idx = self.next_waypoint_idx
         self.next_waypoint_idx = msg.data
+        
+        # 미션 완료 감지: 마지막 waypoint 도달
+        if self.waypoints and self.next_waypoint_idx >= len(self.waypoints) - 1:
+            if not self.was_mission_completed and self.is_enabled:
+                # 미션 완료 직전 상태 저장
+                self.was_mission_completed = True
+                self.save_run_data()
+                self.get_logger().info('[PLOT_PPC] Mission completed - Data saved')
     
     def heading_error_callback(self, msg: Float64):
         he_value = msg.data
@@ -178,13 +208,12 @@ class PlotPPC(Node):
         self.he_filter.append(he_value)
         he_filtered = sum(self.he_filter) / len(self.he_filter)
         
-        self.heading_errors.append(he_filtered)
-        
         #  time_stamp도 함께 기록
         if self.is_enabled and self.start_time is not None:
             now = self.get_clock().now()
             elapsed = (now - self.start_time).nanoseconds * 1e-9
             self.time_stamps.append(elapsed)
+            self.heading_errors.append(he_filtered)
             
             #  TTR 계산 (MOVE 상태에서만)
             if self.current_state == "move":
@@ -197,7 +226,9 @@ class PlotPPC(Node):
         self.cte_filter.append(cte_value)
         cte_filtered = sum(self.cte_filter) / len(self.cte_filter)
         
-        self.cte_values.append(cte_filtered)
+        # time_stamp와 함께 기록
+        if self.is_enabled and self.start_time is not None:
+            self.cte_values.append(cte_filtered)
 
     def _update_ttr(self, current_time, heading_error):
         # CTE는 이미 필터링되어 cte_values에 저장됨
