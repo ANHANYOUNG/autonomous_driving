@@ -50,7 +50,7 @@ class UWB_Publisher(Node):
                 if line:
                     # 큐에 데이터 추가 (메인 스레드에서 처리하도록)
                     self.data_queue.put(line)
-                    self.get_logger().debug(f'Queued data: "{line}"')
+                    self.get_logger().debug(f'[UWB] Queued data: "{line}"')
             except Exception as e:
                 if self.running:  # 정상 종료가 아닌 경우만 에러 로그
                     self.get_logger().error(f'Serial read error: {e}')
@@ -79,7 +79,7 @@ class UWB_Publisher(Node):
         raw_msg = String()
         raw_msg.data = line
         self.raw_data_pub.publish(raw_msg)
-        self.get_logger().debug(f'Published raw data: "{line}"')
+        self.get_logger().debug(f'[UWB] Published raw data: "{line}"')
         
         # 2. 태그 위치만 추출해서 PoseWithCovarianceStamped로 발행
         try:
@@ -116,9 +116,9 @@ class UWB_Publisher(Node):
                 self.absxy_pub.publish(p)
                 # self.get_logger().info(f'Published position: x={x:.3f}, y={y:.3f}')   
             else:
-                self.get_logger().warn(f'Not enough data values: {len(parts)} values in "{line}"')
+                self.get_logger().warn(f'[UWB] Not enough data values: {len(parts)} values in "{line}"')
         except ValueError as e:
-            self.get_logger().warn(f'Failed to parse position data: {line}, error: {e}')
+            self.get_logger().warn(f'[UWB] Failed to parse position data: {line}, error: {e}')
 
     def destroy_node(self):
         """노드 종료 시 스레드 정리"""

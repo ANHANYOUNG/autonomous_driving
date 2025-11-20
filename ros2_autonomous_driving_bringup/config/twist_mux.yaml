@@ -10,13 +10,17 @@ twist_mux:
         topic   : /cmd_vel
         timeout : 0.5
         priority: 40
+      motor_sim:
+        topic   : /cmd_vel_sim
+        timeout : 0.5
+        priority: 35
       calibration:
         topic   : /cmd_vel_cal
         timeout : 0.5
         priority: 30
-      pure_pursuit:
-        topic   : /cmd_vel_ppc
-        timeout : 0.5
-        priority: 20
+      # pure_pursuit:
+      #   topic   : /cmd_vel_ppc
+      #   timeout : 0.5
+      #   priority: 20
     output_topic: /cmd_vel_out 
 

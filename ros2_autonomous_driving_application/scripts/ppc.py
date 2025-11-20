@@ -81,6 +81,7 @@ class PurePursuitNode(Node):
         
         # 런치 인자에서 받은 lookahead_distance 적용
         self.lookahead_distance = self.get_parameter('lookahead_distance').get_parameter_value().double_value
+        self.get_logger().info(f'[RUN] Ld={self.lookahead_distance}m')
 
         self.lookahead_idx = 1
         self.interpolated_waypoints = self.interpolate_waypoints(self.waypoints, self.lookahead_distance)
@@ -132,7 +133,6 @@ class PurePursuitNode(Node):
 
     # ========== Timer Loop ==========
     def timer_callback(self):
-        """메인 제어 루프 (250ms마다 실행) - 감독 역할"""
         # 1. 주행 실행 조건 검사
         if not self.check_run():
             return
@@ -145,11 +145,10 @@ class PurePursuitNode(Node):
         
         # 4. 속도 명령 계산
         twist = Twist()
-        if self.clock_cnt >= 999:
-            if self.state == "move":
-                twist = self.move_state()
-            elif self.state == "rotate":
-                twist = self.rotate_state()
+        if self.state == "move":
+            twist = self.move_state()
+        elif self.state == "rotate":
+            twist = self.rotate_state()
         # 5. 속도 명령 발행
         self.publish_cmd_vel(twist)
         
@@ -157,7 +156,6 @@ class PurePursuitNode(Node):
         self.publish_for_plot()
     # ========== Main Control Logic ==========
     def check_run(self):
-        """주행 실행 조건 검사 (가드 로직)"""
         # 비활성화 시 정지
         if not self.is_enabled:
             self.cmd_pub.publish(self.zero_twist)
@@ -176,7 +174,6 @@ class PurePursuitNode(Node):
         return True
     
     def check_arrival(self):
-        """도착 판정 및 상태 갱신"""
         x = self.global_x
         y = self.global_y
         
@@ -228,7 +225,6 @@ class PurePursuitNode(Node):
         self.lookahead_idx = min_idx
     
     def check_rotate(self):
-        """코너 진입 감지 (회전 플래그 갱신)"""
         lookahead_point = self.interpolated_waypoints[self.lookahead_idx]
         
         # waypoints 중 하나와 lookahead_point의 거리가 0.01 이하이면 회전 플래그 on
@@ -238,7 +234,6 @@ class PurePursuitNode(Node):
                 break
     
     def move_state(self):
-        """경로 추종 명령 계산 ("move" 상태일 때)"""
         x = self.global_x
         y = self.global_y
         yaw = self.global_yaw
@@ -249,19 +244,36 @@ class PurePursuitNode(Node):
         dy = lookahead_point[1] - y
         ld = np.hypot(dx, dy)
         
-        # 이전 curvature 저장용 변수 추가
-        if not hasattr(self, 'prev_curvature'):
-            self.prev_curvature = 0.0
-        
-        if ld < self.lookahead_distance * 0.25:  # gazebo: 0.25, real: 0.75
-            curvature = self.prev_curvature if hasattr(self, 'prev_curvature') else 0.0
-        else:
+        if ld > self.lookahead_distance * 0.25:
+            # ========== Pure Pursuit 모드 (부드러움 우선) ==========
             # 차량의 heading 기준 lookahead point의 좌표
             x_r = math.cos(yaw) * dx + math.sin(yaw) * dy
             y_r = -math.sin(yaw) * dx + math.cos(yaw) * dy
             curvature = 2.0 * y_r / (ld ** 2)
-            self.prev_curvature = curvature
+        else:
+            # ========== 정렬 모드 (정확성 우선) ==========
+            # 다음 실제 웨이포인트를 타겟으로 설정
+            if self.current_waypoint_idx < len(self.waypoints):
+                target_wp = self.waypoints[self.current_waypoint_idx]
+            else:
+                # 마지막 웨이포인트 사용
+                target_wp = self.waypoints[-1]
+            
+            # 타겟 웨이포인트 방향 계산
+            dx_target = target_wp[0] - x
+            dy_target = target_wp[1] - y
+            ld_target = np.hypot(dx_target, dy_target)
+            
+            if ld_target > 0.01:  # 거의 도착한 경우 방지
+                # 차량 좌표계로 변환
+                x_r_target = math.cos(yaw) * dx_target + math.sin(yaw) * dy_target
+                y_r_target = -math.sin(yaw) * dx_target + math.cos(yaw) * dy_target
+                # 정렬 곡률 계산
+                curvature = 2.0 * y_r_target / (ld_target ** 2)
+            else:
+                curvature = 0.0
         
+        # 속도 명령 생성
         twist = Twist()
         if self.rotate_flag == 1:
             twist.linear.x = 0.1
@@ -273,7 +285,6 @@ class PurePursuitNode(Node):
         return twist
     
     def rotate_state(self):
-        """↪제자리 회전 명령 계산 ("rotate" 상태일 때)"""
         x = self.global_x
         y = self.global_y
         yaw = self.global_yaw
@@ -310,17 +321,9 @@ class PurePursuitNode(Node):
         return twist
 
     def publish_cmd_vel(self, twist):
-        """최종 속도 명령 발행"""
         self.cmd_pub.publish(twist)
     
     def interpolate_waypoints(self, waypoints, lookahead_distance):
-        """
-        주어진 경로점(waypoints) 리스트를 lookahead_distance 간격으로 보간하여
-        새로운 경로점 리스트를 반환합니다.
-        waypoints: [(x1, y1), (x2, y2), ...]
-        lookahead_distance: float
-        return: [(x, y), ...] (보간된 경로점 리스트)
-        """
         # 최소 경로점 개수
         if len(waypoints) < 2:
             return waypoints
@@ -346,22 +349,31 @@ class PurePursuitNode(Node):
 
     # ========== Input ==========
     def ppc_enable_callback(self, msg: Bool):
-        """PPC 활성화/비활성화 상태를 수신하고 즉각적인 조치를 취합니다."""
         # 상태가 변경될 때만 로그 출력
         if self.is_enabled != msg.data:
             if msg.data:
-                # 재활성화 시 미션 완료 플래그 리셋
-                self.mission_completed = False
-                self.current_waypoint_idx = 0
-                self.lookahead_idx = 1
-                self.state = "move"
-                self.get_logger().info('Pure Pursuit [ENABLED]')
+                # ========== RESUME (재개) ==========
+                # 진행 상황을 유지한 채 재활성화
+                # mission_completed가 True면 완전히 새로 시작
+                if self.mission_completed:
+                    self.mission_completed = False
+                    self.current_waypoint_idx = 0
+                    self.lookahead_idx = 1
+                    self.state = "move"
+                    self.get_logger().info('Pure Pursuit [ENABLED] - Starting new mission')
+                else:
+                    # 진행 중이던 위치 유지 (일시정지 해제)
+                    self.get_logger().info(
+                        f'Pure Pursuit [RESUMED] - Continuing from waypoint {self.current_waypoint_idx}'
+                    )
             else:
-                # 비활성화되는 즉시 0 속도를 1회 발행
-                # (twist_mux가 이 토픽을 timeout 처리할 때까지 기다리지 않도록)
+                # ========== PAUSE (일시정지) ==========
+                # 진행 상황은 유지하고 움직임만 멈춤
                 self.cmd_pub.publish(self.zero_twist)
-                self.mission_completed = True
-                self.get_logger().info('Pure Pursuit [DISABLED]')
+                # mission_completed는 건드리지 않음 (기억 유지)
+                self.get_logger().info(
+                    f'Pure Pursuit [PAUSED] - Holding at waypoint {self.current_waypoint_idx}'
+                )
                 
         self.is_enabled = msg.data
 
@@ -406,7 +418,6 @@ class PurePursuitNode(Node):
         # self.current_yaw = yaw
 
     def mag_callback(self, msg: MagneticField):
-        """Magnetometer 콜백"""
         # 원시 자기장 값 저장 (Tesla)
         self.mag_x = msg.magnetic_field.x
         self.mag_y = msg.magnetic_field.y
@@ -425,7 +436,6 @@ class PurePursuitNode(Node):
         # )
         
     def clock_callback(self, msg):
-        """Clock 콜백 - Gazebo가 시작되면 waypoint 발행"""
         self.current_time = msg.clock.sec + msg.clock.nanosec * 1e-9
 
         if self.current_time == 0.0:
@@ -440,7 +450,6 @@ class PurePursuitNode(Node):
                 self.waypoints_published = True
 
     def global_odom_callback(self, msg: Odometry):
-        """/odometry/global 콜백. EKF의 전역 위치 추정 결과를 사용."""
         self.global_x = msg.pose.pose.position.x
         self.global_y = msg.pose.pose.position.y
         
@@ -449,7 +458,6 @@ class PurePursuitNode(Node):
 
     # ========== Utility ==========
     def normalize_angle(self, angle):
-        """-pi ~ pi 범위로 각도 정규화"""
         while angle > math.pi:
             angle -= 2 * math.pi
         while angle < -math.pi:
@@ -458,7 +466,6 @@ class PurePursuitNode(Node):
 
     # ========== For Plot ==========
     def publish_waypoints_path(self):
-        """Waypoints를 nav_msgs/Path로 발행 (plot_ppc.py가 수신)"""
         path = Path()
         path.header.frame_id = 'map'
         path.header.stamp = self.get_clock().now().to_msg()
@@ -476,7 +483,6 @@ class PurePursuitNode(Node):
         self.get_logger().info(f'Published {len(self.waypoints)} waypoints to /waypoints_path')
     
     def publish_for_plot(self):
-        """디버깅/시각화 데이터 발행"""
         x = self.global_x
         y = self.global_y
         yaw = self.global_yaw
