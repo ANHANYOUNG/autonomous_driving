@@ -25,11 +25,15 @@ class AppBridge(Node):
         # 2. Publishers
         self.state_command_pub = self.create_publisher(String, '/state_command', 10)
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.safety_pub = self.create_publisher(Int32, '/safety', 10)
+        self.video_pub = self.create_publisher(Int32, '/video_enable', 10)
 
         # 3. Subscribers
         self.create_subscription(String, '/app/sw_bits', self.sw_bits_callback, 10)
         self.create_subscription(String, '/app/key_bits', self.key_bits_callback, 10)
         self.create_subscription(String, '/app/speed_bits', self.speed_bits_callback, 10)
+        self.create_subscription(Int32, '/app/video_bit', self.video_bit_callback, 10)
+        self.create_subscription(Int32, '/app/safe_bit', self.safe_bit_callback, 10)
         
         # state_manager가 발행하는 마스터 상태를 구독
         self.create_subscription(String, '/robot_state', self.robot_state_callback, 10)
@@ -121,7 +125,20 @@ class AppBridge(Node):
         if new_speed != self.current_speed:
             self.current_speed = new_speed
             self.get_logger().info(f'[AppBridge] Speed set to {self.current_speed:.2f} m/s')
+    def video_bit_callback(self, msg):
+        video_enable = msg.data  # 0 or 1
+        video_msg = Int32()
+        video_msg.data = video_enable
+        self.video_pub.publish(video_msg)
+        self.get_logger().info(f'[AppBridge] Published video_enable: {video_enable}')
 
+    def safe_bit_callback(self, msg):
+        safe_enable = msg.data  # 0 or 1
+        safe_msg = Int32()
+        safe_msg.data = safe_enable
+        self.safety_pub.publish(safe_msg)
+        self.get_logger().info(f'[AppBridge] Published safe_enable: {safe_enable}')
+        
 def main(args=None):
     rclpy.init(args=args)
     app_bridge = AppBridge()

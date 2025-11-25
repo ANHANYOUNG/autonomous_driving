@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Int32
 import json
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -76,6 +76,8 @@ class AppWiFiReceiver(Node):
         self.key_bits_pub = self.create_publisher(String, '/app/key_bits', 10)
         self.speed_bits_pub = self.create_publisher(String, '/app/speed_bits', 10)
         self.raw_app_data_pub = self.create_publisher(String, '/app/raw_data', 10)
+        self.video_bit_pub = self.create_publisher(Int32, '/app/video_bit', 10)
+        self.safe_bit_pub = self.create_publisher(Int32, '/app/safe_bit', 10)
         
         # HTTP 서버 설정
         self.declare_parameter('port', 8889)
@@ -143,6 +145,20 @@ class AppWiFiReceiver(Node):
                 speed_msg.data = str(json_data['speed_bits'])
                 self.speed_bits_pub.publish(speed_msg)
                 self.get_logger().info(f'[WIFI_RX] Received speed_bits: {json_data["speed_bits"]}')
+
+            # video_bit = 0 or 1
+            if 'video_bit' in json_data:
+                video_msg = Int32()
+                video_msg.data = int(json_data['video_bit'])
+                self.video_bit_pub.publish(video_msg)
+                self.get_logger().info(f'[WIFI_RX] Received video_bit: {json_data["video_bit"]}')
+
+            # safe_bit = 0 or 1
+            if 'safe_bit' in json_data:
+                safe_msg = Int32()
+                safe_msg.data = int(json_data['safe_bit'])
+                self.safe_bit_pub.publish(safe_msg)
+                self.get_logger().info(f'[WIFI_RX] Received safe_bit: {json_data["safe_bit"]}')
 
             # 통계 로그 (10개마다 출력)
             if self.data_count % 10 == 0:
