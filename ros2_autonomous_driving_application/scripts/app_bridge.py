@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Int32
 from geometry_msgs.msg import Twist
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
@@ -32,8 +32,8 @@ class AppBridge(Node):
         self.create_subscription(String, '/app/sw_bits', self.sw_bits_callback, 10)
         self.create_subscription(String, '/app/key_bits', self.key_bits_callback, 10)
         self.create_subscription(String, '/app/speed_bits', self.speed_bits_callback, 10)
-        self.create_subscription(Int32, '/app/video_bit', self.video_bit_callback, 10)
-        self.create_subscription(Int32, '/app/safe_bit', self.safe_bit_callback, 10)
+        self.create_subscription(String, '/app/video_bit', self.video_bit_callback, 10)
+        self.create_subscription(String, '/app/safe_bit', self.safe_bit_callback, 10)
         
         # state_manager가 발행하는 마스터 상태를 구독
         self.create_subscription(String, '/robot_state', self.robot_state_callback, 10)
@@ -125,20 +125,31 @@ class AppBridge(Node):
         if new_speed != self.current_speed:
             self.current_speed = new_speed
             self.get_logger().info(f'[AppBridge] Speed set to {self.current_speed:.2f} m/s')
+
     def video_bit_callback(self, msg):
-        video_enable = msg.data  # 0 or 1
-        video_msg = Int32()
-        video_msg.data = video_enable
-        self.video_pub.publish(video_msg)
-        self.get_logger().info(f'[AppBridge] Published video_enable: {video_enable}')
+        cleaned = msg.data.replace('"', '').strip()
+        if cleaned not in ("0", "1"):
+            self.get_logger().warn(f'invalid video_bit: {msg.data}')
+            return
+        out = Int32()
+        out.data = int(cleaned)      # 0 또는 1
+        self.video_pub.publish(out)
 
     def safe_bit_callback(self, msg):
-        safe_enable = msg.data  # 0 or 1
-        safe_msg = Int32()
-        safe_msg.data = safe_enable
-        self.safety_pub.publish(safe_msg)
-        self.get_logger().info(f'[AppBridge] Published safe_enable: {safe_enable}')
-        
+        cleaned = msg.data.replace('"', '').strip()
+
+        if cleaned not in ("0", "1"):
+            self.get_logger().warn(f'invalid safe_bit: {msg.data}')
+            return
+
+        # 1만 처리, 0은 무시
+        if cleaned == "1":
+            out = Int32()
+            out.data = 0
+            self.safety_pub.publish(out)
+            self.get_logger().info('[AppBridge] Safety DISABLED (0 received)')
+
+
 def main(args=None):
     rclpy.init(args=args)
     app_bridge = AppBridge()
