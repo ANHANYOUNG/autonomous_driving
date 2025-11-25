@@ -32,7 +32,7 @@ def generate_launch_description():
     motor_script_arg = DeclareLaunchArgument(
         'motor_script',
         default_value='motor_cmd_vel_sim_2.py',
-        description='Motor control script: motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py, motor_cmd_vel_sim_3.py'
+        description='Motor control script: motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py, motor_cmd_vel_sim_3.py, motor_cmd_vel_real_proportional.py, motor_cmd_vel_real_linear.py'
     )
     
     # Lookahead Distance
@@ -83,7 +83,7 @@ def generate_launch_description():
     
     state_machine_node = Node(
         package='ros2_autonomous_driving_application',
-        executable='state_machine_for_cal.py',
+        executable='state_machine.py',
         name='state_machine_executor',
         parameters=[
             path_config,
@@ -202,18 +202,18 @@ def generate_launch_description():
                     {'publish_rate': 1.0},]  # 발행 주기 (Hz)
     )
 
-    # plot
-    plot_ppc_node = Node(
-        package = 'ros2_autonomous_driving_application',
-        executable = 'plot_ppc.py',
-        name = 'plot_ppc_node',
-        output = 'screen',
-        parameters = [
-            {'use_sim_time': use_sim_time},
-            {'motor_script': motor_script},  #  런치 인자 전달
-            {'lookahead_distance': ld}       #  런치 인자 전달
-        ]
-    )
+    # # plot
+    # plot_ppc_node = Node(
+    #     package = 'ros2_autonomous_driving_application',
+    #     executable = 'plot_ppc.py',
+    #     name = 'plot_ppc_node',
+    #     output = 'screen',
+    #     parameters = [
+    #         {'use_sim_time': use_sim_time},
+    #         {'motor_script': motor_script},  #  런치 인자 전달
+    #         {'lookahead_distance': ld}       #  런치 인자 전달
+    #     ]
+    # )
 
 
     return LaunchDescription([
@@ -247,5 +247,5 @@ def generate_launch_description():
         # static_imu_tf,
         # static_odom_to_chassis,
         # plot
-        plot_ppc_node,
+        # plot_ppc_node,
     ])

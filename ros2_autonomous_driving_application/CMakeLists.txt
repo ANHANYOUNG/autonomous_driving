@@ -26,29 +26,34 @@ endif()
 ament_package()
 
 install(PROGRAMS
+  # sensor
   scripts/uwb_publisher.py
-  scripts/pure_pursuit_controller.py
   scripts/uwb_data_wifi_out.py
-  scripts/imu.py
   scripts/uwb_publisher_dummy.py
+  scripts/imu.py
+  scripts/imu_offset.py
+  # control
+  scripts/ppc.py
+  # wifi
   scripts/app_wifi_rx.py
   scripts/app_wifi_tx.py
+  scripts/app_bridge.py
+  # motor
   scripts/motor_cmd_vel_trx.py
-  scripts/state_manager.py
-  scripts/state_machine.py
-  scripts/state_machine_for_cal.py
-  scripts/cmd_send.py
-  scripts/pure_pursuit_controller_v2.py
-  scripts/motor_cmd_vel_trx_v2.py
   scripts/motor_cmd_vel_sim.py
+  scripts/motor_cmd_vel_trx_v2.py
   scripts/motor_cmd_vel_sim_1.py
   scripts/motor_cmd_vel_sim_2.py
   scripts/motor_cmd_vel_sim_3.py
-  scripts/app_bridge.py
-  scripts/imu_offset.py
+  scripts/motor_cmd_vel_real_proportional.py
+  scripts/motor_cmd_vel_real_linear.py
+  # state
+  scripts/state_machine.py
+  scripts/state_manager.py
+  scripts/cmd_send.py
+  # plot
   scripts/plot_calibration.py
   scripts/plot_ppc.py
-  scripts/ppc.py
   DESTINATION lib/${PROJECT_NAME}
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
 )

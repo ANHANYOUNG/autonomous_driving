@@ -74,9 +74,10 @@ class PurePursuitNode(Node):
             # (9, -0.75), (-9, -0.75),
             # (-9, -2.25), (9, -2.25),
             # (9, -3.75), (-9, -3.75)
-            (-9,9), (-1,9),
-            (-1,5), (-9,5),
-            (-9,1), (-1,1)
+            (-9,9), (-3,9),
+            (-3,7)
+            # (-1,5), (-9,5),
+            # (-9,1), (-1,1)
         ]
         
         # 런치 인자에서 받은 lookahead_distance 적용
@@ -192,10 +193,11 @@ class PurePursuitNode(Node):
             robot_pos = np.array([x, y])
             vec_robot = np.array([robot_pos[0] - curr_wp[0], robot_pos[1] - curr_wp[1]])
             dot = np.dot(vec_path, vec_robot)
-            dot = np.dot(vec_path, vec_robot)
-            if dot > 0:
-                self.get_logger().info("[RUN] Reached final waypoint")
+            if dot > 0 and not self.mission_completed:
+                self.get_logger().info("[RUN] Reached final waypoint - Mission completed")
                 self.mission_completed = True
+                # waypoint index를 마지막으로 설정 (plot에서 완료 감지용)
+                self.current_waypoint_idx = len(self.waypoints) - 1
             return curr_wp
         
         # 내적기반 도착 판정 + waypoint index 증가
@@ -279,7 +281,7 @@ class PurePursuitNode(Node):
             twist.linear.x = 0.1
             twist.angular.z = twist.linear.x * curvature
         else:
-            twist.linear.x = 0.35
+            twist.linear.x = 0.3
             twist.angular.z = twist.linear.x * curvature
         
         return twist
@@ -352,27 +354,28 @@ class PurePursuitNode(Node):
         # 상태가 변경될 때만 로그 출력
         if self.is_enabled != msg.data:
             if msg.data:
-                # ========== RESUME (재개) ==========
-                # 진행 상황을 유지한 채 재활성화
-                # mission_completed가 True면 완전히 새로 시작
+                # ========== ENABLE (활성화) ==========
+                # mission_completed가 True면 → 새 미션 시작 (완전 초기화)
+                # mission_completed가 False면 → 일시정지 해제 (진행 상황 유지)
                 if self.mission_completed:
+                    # 완전히 새로운 미션 시작
                     self.mission_completed = False
                     self.current_waypoint_idx = 0
                     self.lookahead_idx = 1
                     self.state = "move"
-                    self.get_logger().info('Pure Pursuit [ENABLED] - Starting new mission')
+                    self.rotate_flag = 0
+                    self.get_logger().info('[PPC] ENABLED - Starting NEW mission')
                 else:
-                    # 진행 중이던 위치 유지 (일시정지 해제)
+                    # 일시정지 해제 - 진행 중이던 위치에서 재개
                     self.get_logger().info(
-                        f'Pure Pursuit [RESUMED] - Continuing from waypoint {self.current_waypoint_idx}'
+                        f'[PPC] RESUMED - Continuing from waypoint {self.current_waypoint_idx}'
                     )
             else:
-                # ========== PAUSE (일시정지) ==========
-                # 진행 상황은 유지하고 움직임만 멈춤
+                # ========== DISABLE (비활성화) ==========
+                # 정지 명령만 발행, 진행 상황은 모두 유지
                 self.cmd_pub.publish(self.zero_twist)
-                # mission_completed는 건드리지 않음 (기억 유지)
                 self.get_logger().info(
-                    f'Pure Pursuit [PAUSED] - Holding at waypoint {self.current_waypoint_idx}'
+                    f'[PPC] PAUSED - State preserved (mission_completed={self.mission_completed})'
                 )
                 
         self.is_enabled = msg.data

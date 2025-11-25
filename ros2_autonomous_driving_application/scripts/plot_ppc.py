@@ -34,6 +34,8 @@ class PlotPPC(Node):
             'motor_cmd_vel_sim_1.py': 'Proportional',
             'motor_cmd_vel_sim_2.py': 'Angular_Priority',
             'motor_cmd_vel_sim_3.py': 'Linear_Priority',
+            'motor_cmd_vel_real_proportional.py': 'Real_Proportional',
+            'motor_cmd_vel_real_linear.py': 'Real_Linear',
         }
         self.strategy_name = self.strategy_map.get(self.motor_script, 'Unknown')
         
@@ -83,8 +85,8 @@ class PlotPPC(Node):
         # 임계값 설정
         self.CTE_OUT = 0.20      # 이탈 임계값 (m)
         self.CTE_IN = 0.08       # 복귀 임계값 (m)
-        self.HE_IN = 12.0        # 헤딩 오차 복귀 임계값 (degrees)
         self.HE_OUT = 20.0       # 헤딩 오차 이탈 임계값 (degrees)
+        self.HE_IN = 12.0        # 헤딩 오차 복귀 임계값 (degrees)
         self.T_HOLD = 0.5        # 최소 유지 시간 (s)
         self.TTR_TIMEOUT = 10.0  # 회복 타임아웃 (s)
         self.TTR_COOLDOWN = 0.5  # 연속 이벤트 방지 쿨다운 (s)

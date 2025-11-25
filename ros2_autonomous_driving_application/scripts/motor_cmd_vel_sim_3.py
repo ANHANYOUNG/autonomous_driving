@@ -14,7 +14,7 @@ class MotorCmdVelSim3(Node):
         self.declare_parameter('wheel_radius', 0.1)
         self.declare_parameter('wheel_base', 1.5)
         self.declare_parameter('gear_ratio', 60.0)
-        self.declare_parameter('max_motor_rpm', 2500.0)
+        self.declare_parameter('max_motor_rpm', 3000.0)
         
         self.wheel_radius = self.get_parameter('wheel_radius').get_parameter_value().double_value
         self.wheel_base = self.get_parameter('wheel_base').get_parameter_value().double_value
@@ -34,7 +34,7 @@ class MotorCmdVelSim3(Node):
         self.wheel_circumference = 2.0 * math.pi * self.wheel_radius
 
         # ========== Max linear vel, angular vel ==========
-        self.max_linear_velocity = (self.max_motor_rpm * self.wheel_circumference) / (60.0 * self.gear_ratio)
+        self.max_linear_velocity = 0.35
 
         max_wheel_velocity = self.max_linear_velocity
         self.max_angular_velocity = (2.0 * max_wheel_velocity) / self.wheel_base

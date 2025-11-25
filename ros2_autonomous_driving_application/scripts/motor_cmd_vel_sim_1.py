@@ -14,7 +14,7 @@ class MotorCmdVelSim1(Node):
         self.declare_parameter('wheel_radius', 0.1)
         self.declare_parameter('wheel_base', 1.5)
         self.declare_parameter('gear_ratio', 60.0)
-        self.declare_parameter('max_motor_rpm', 2500.0)
+        self.declare_parameter('max_motor_rpm', 3000.0)
         
         self.wheel_radius = self.get_parameter('wheel_radius').get_parameter_value().double_value
         self.wheel_base = self.get_parameter('wheel_base').get_parameter_value().double_value

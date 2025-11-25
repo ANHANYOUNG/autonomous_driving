@@ -127,13 +127,21 @@ def plot_calibration(data, save_path=None):
         mean_abs_res = np.mean(np.abs(residuals))
         std_res = np.std(residuals)
         
+        # 2σ 범위 내 데이터 비율 계산
+        within_2sigma = np.sum(np.abs(residuals) <= 2*std_res)
+        total_points = len(residuals)
+        coverage_2sigma = (within_2sigma / total_points) * 100
+        
         ax2.axhline(y=mean_abs_res, color='g', linestyle='--', linewidth=2, label=f'Avg Error: {mean_abs_res:.1f} mm')
         ax2.axhline(y=-mean_abs_res, color='g', linestyle='--', linewidth=2)
-        ax2.axhline(y=2*std_res, color='orange', linestyle=':', linewidth=1.5, label=f'±2σ: {2*std_res:.1f} mm')
+        ax2.axhline(y=2*std_res, color='orange', linestyle=':', linewidth=1.5, label=f'±2σ: {2*std_res:.1f} mm ({coverage_2sigma:.1f}%)')
         ax2.axhline(y=-2*std_res, color='orange', linestyle=':', linewidth=1.5)
         
         # 반환점 표시
         ax2.axvline(x=max_dist_idx, color='y', linestyle='--', alpha=0.5, linewidth=2, label='Turn Point')
+        
+        # 2σ 커버리지를 results에 저장 (Summary에서 사용)
+        results['uwb_2sigma_coverage_pct'] = float(coverage_2sigma)
         
         ax2.set_xlabel('Sample Index', fontsize=11)
         ax2.set_ylabel('Position Error [mm] (+ Right / - Left)', fontsize=11)
@@ -167,11 +175,19 @@ def plot_calibration(data, save_path=None):
         # 통계 정보
         std_imu = np.std(angle_diffs_deg)
         
-        ax3.axhline(y=2*std_imu, color='orange', linestyle=':', linewidth=1.5, label=f'±2σ: {2*std_imu:.2f}°')
+        # 2σ 범위 내 데이터 비율 계산
+        within_2sigma_imu = np.sum(np.abs(angle_diffs_deg) <= 2*std_imu)
+        total_imu = len(angle_diffs_deg)
+        coverage_2sigma_imu = (within_2sigma_imu / total_imu) * 100
+        
+        ax3.axhline(y=2*std_imu, color='orange', linestyle=':', linewidth=1.5, label=f'±2σ: {2*std_imu:.2f}° ({coverage_2sigma_imu:.1f}%)')
         ax3.axhline(y=-2*std_imu, color='orange', linestyle=':', linewidth=1.5)
         
         # 반환점 표시
         ax3.axvline(x=time_forward_end, color='y', linestyle='--', alpha=0.5, linewidth=2, label='Turn Point')
+        
+        # 2σ 커버리지를 results에 저장 (Summary에서 사용)
+        results['imu_2sigma_coverage_pct'] = float(coverage_2sigma_imu)
         
         ax3.set_xlabel('Time [s]', fontsize=11)
         ax3.set_ylabel('Yaw Error [deg]', fontsize=11)
@@ -199,6 +215,13 @@ def plot_calibration(data, save_path=None):
     
     imu_std = results.get('imu_std_dev_deg', 'N/A')
     imu_std_str = f"{imu_std:.2f}" if isinstance(imu_std, (int, float)) else str(imu_std)
+    
+    # 2σ 커버리지 비율
+    uwb_2sigma_cov = results.get('uwb_2sigma_coverage_pct', 'N/A')
+    uwb_2sigma_str = f"{uwb_2sigma_cov:.1f}%" if isinstance(uwb_2sigma_cov, (int, float)) else str(uwb_2sigma_cov)
+    
+    imu_2sigma_cov = results.get('imu_2sigma_coverage_pct', 'N/A')
+    imu_2sigma_str = f"{imu_2sigma_cov:.1f}%" if isinstance(imu_2sigma_cov, (int, float)) else str(imu_2sigma_cov)
     
     uwb_angle_deg = results.get('uwb_angle_deg', 'N/A')
     uwb_angle_str = f"{uwb_angle_deg:.2f}" if isinstance(uwb_angle_deg, (int, float)) else str(uwb_angle_deg)
@@ -228,8 +251,8 @@ ANGLE ANALYSIS
   • Yaw Offset Angle:   {yaw_offset_str}
   
 QUALITY METRICS
-  • UWB Precision:      {uwb_precision_str} mm
-  • IMU Stability:      {imu_std_str}°
+  • UWB 2σ Coverage:    {uwb_2sigma_str}
+  • IMU 2σ Coverage:    {imu_2sigma_str}
 
 CORRECTION
   • Offset Applied:     {yaw_offset_str}

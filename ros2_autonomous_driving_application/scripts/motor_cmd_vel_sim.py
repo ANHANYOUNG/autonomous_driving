@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+"""Only Clipping"""
 
 import rclpy
 from rclpy.node import Node
