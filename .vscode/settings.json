@@ -1,5 +1,24 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:system",
     "python-envs.pythonProjects": [],
-    "peacock.remoteColor": "#080336"
+    "peacock.remoteColor": "#080336",
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#0f0666",
+        "activityBar.background": "#0f0666",
+        "activityBar.foreground": "#e7e7e7",
+        "activityBar.inactiveForeground": "#e7e7e799",
+        "activityBarBadge.background": "#b51b0b",
+        "activityBarBadge.foreground": "#e7e7e7",
+        "commandCenter.border": "#e7e7e799",
+        "sash.hoverBorder": "#0f0666",
+        "statusBar.background": "#080336",
+        "statusBar.foreground": "#e7e7e7",
+        "statusBarItem.hoverBackground": "#0f0666",
+        "statusBarItem.remoteBackground": "#080336",
+        "statusBarItem.remoteForeground": "#e7e7e7",
+        "titleBar.activeBackground": "#080336",
+        "titleBar.activeForeground": "#e7e7e7",
+        "titleBar.inactiveBackground": "#08033699",
+        "titleBar.inactiveForeground": "#e7e7e799"
+    }
 }

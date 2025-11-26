@@ -42,10 +42,6 @@ class PurePursuitNode(Node):
         self.dt_gps = 0.1
         self.gps_sub = self.create_subscription(NavSatFix, '/navsat', self.gps_callback, 1)
 
-        self.dt_imu = 0.01
-        self.imu_sub = self.create_subscription(Imu, '/imu_cal', self.imu_callback, 1)
-
-        self.mag_sub = self.create_subscription(MagneticField, '/magnetometer', self.mag_callback, 1)
         self.clock_sub = self.create_subscription(Clock, '/clock', self.clock_callback, 1)
 
         self.dt_timer = 0.25
@@ -426,23 +422,6 @@ class PurePursuitNode(Node):
             0, 0, 0, 0, 0, 1e6,
         ]
         self.absxy_pub.publish(p)
-
-    def imu_callback(self, msg):
-        if self.clock_cnt != self.clock_cnt_pre:
-            self.clock_cnt_pre = self.clock_cnt
-
-        q = msg.orientation
-        quaternion = [q.x, q.y, q.z, q.w]
-        _, _, yaw = euler_from_quaternion(quaternion)
-
-    def mag_callback(self, msg: MagneticField):
-        self.mag_x = msg.magnetic_field.x
-        self.mag_y = msg.magnetic_field.y
-        self.mag_z = msg.magnetic_field.z
-
-        self.mag_yaw = math.atan2(self.mag_y, self.mag_x)
-        declination = math.radians(-8.9)
-        self.mag_yaw -= declination
         
     def clock_callback(self, msg):
         self.current_time = msg.clock.sec + msg.clock.nanosec * 1e-9

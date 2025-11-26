@@ -102,7 +102,7 @@ def generate_launch_description():
     # 5. 자율주행 핵심 로직 (Pure Pursuit)
     pure_pursuit_node = Node(
         package='ros2_autonomous_driving_application',
-        executable='ppc.py',
+        executable='ppc_2.py',
         name='pure_pursuit_controller',
         parameters=[
             {'use_sim_time': use_sim_time},

@@ -47,11 +47,11 @@ class PurePursuitNode(Node):
         self.dt_gps = 0.1
         self.gps_sub = self.create_subscription(NavSatFix, '/navsat', self.gps_callback, 1)
 
-        self.dt_imu = 0.01
-        self.imu_sub = self.create_subscription(Imu, '/imu_cal', self.imu_callback, 1)
+        # self.dt_imu = 0.01
+        # self.imu_sub = self.create_subscription(Imu, '/imu_cal', self.imu_callback, 1)
 
-        self.mag_sub = self.create_subscription(MagneticField, '/magnetometer', self.mag_callback, 1)
-        self.clock_sub = self.create_subscription(Clock, '/clock', self.clock_callback, 1)
+        # self.mag_sub = self.create_subscription(MagneticField, '/magnetometer', self.mag_callback, 1)
+        # self.clock_sub = self.create_subscription(Clock, '/clock', self.clock_callback, 1)
 
         self.dt_timer = 0.25
         self.timer = self.create_timer(self.dt_timer, self.timer_callback)
@@ -409,34 +409,34 @@ class PurePursuitNode(Node):
         ]
         self.absxy_pub.publish(p)
 
-    def imu_callback(self, msg):
-        # 주석 해제: 시간이 변하면 업데이트
-        if self.clock_cnt != self.clock_cnt_pre:
-            self.clock_cnt_pre = self.clock_cnt
+    # def imu_callback(self, msg):
+    #     # 주석 해제: 시간이 변하면 업데이트
+    #     if self.clock_cnt != self.clock_cnt_pre:
+    #         self.clock_cnt_pre = self.clock_cnt
 
-        # 쿼터니언 -> yaw 변환
-        q = msg.orientation
-        quaternion = [q.x, q.y, q.z, q.w]
-        _, _, yaw = euler_from_quaternion(quaternion)
-        # self.current_yaw = yaw
+    #     # 쿼터니언 -> yaw 변환
+    #     q = msg.orientation
+    #     quaternion = [q.x, q.y, q.z, q.w]
+    #     _, _, yaw = euler_from_quaternion(quaternion)
+    #     # self.current_yaw = yaw
 
-    def mag_callback(self, msg: MagneticField):
-        # 원시 자기장 값 저장 (Tesla)
-        self.mag_x = msg.magnetic_field.x
-        self.mag_y = msg.magnetic_field.y
-        self.mag_z = msg.magnetic_field.z
+    # def mag_callback(self, msg: MagneticField):
+    #     # 원시 자기장 값 저장 (Tesla)
+    #     self.mag_x = msg.magnetic_field.x
+    #     self.mag_y = msg.magnetic_field.y
+    #     self.mag_z = msg.magnetic_field.z
 
-        # XY 평면에서 heading 계산
-        # atan2(Y, X)으로 구면 좌표계의 방위각(자북 기준, rad)
-        self.mag_yaw = math.atan2(self.mag_y, self.mag_x)
+    #     # XY 평면에서 heading 계산
+    #     # atan2(Y, X)으로 구면 좌표계의 방위각(자북 기준, rad)
+    #     self.mag_yaw = math.atan2(self.mag_y, self.mag_x)
 
-        # 지자기 편차(declination) 보정이 필요하면 여기서 더해줌
-        declination = math.radians(-8.9)
-        self.mag_yaw -= declination
+    #     # 지자기 편차(declination) 보정이 필요하면 여기서 더해줌
+    #     declination = math.radians(-8.9)
+    #     self.mag_yaw -= declination
 
-        # self.get_logger().info(
-        #     f"Mag: x={self.mag_x:.3e}, y={self.mag_y:.3e}, z={self.mag_z:.3e}, yaw={math.degrees(self.mag_yaw):.1f}°"
-        # )
+    #     # self.get_logger().info(
+    #     #     f"Mag: x={self.mag_x:.3e}, y={self.mag_y:.3e}, z={self.mag_z:.3e}, yaw={math.degrees(self.mag_yaw):.1f}°"
+    #     # )
         
     def clock_callback(self, msg):
         self.current_time = msg.clock.sec + msg.clock.nanosec * 1e-9

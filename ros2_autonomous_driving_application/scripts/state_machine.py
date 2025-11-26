@@ -121,11 +121,11 @@ class StateMachineExecutor(Node):
         self.align_yaw_threshold = 0.01 # 약 0.57도
         
         # 타이머 (마지막에 생성)
-        self.publish_timer = self.create_timer(0.1, self.state_machine_loop)
+        self.publish_timer = self.create_timer(1, self.state_machine_loop)
 
     # ========== State Machine Loop ==========
     def state_machine_loop(self):
-        """0.1초마다 실행되는 루프"""
+        """1초마다 실행되는 루프"""
         # ========== 검문소: 사람 감지 시 일시정지 ==========
         if self.person_detected:
             # 모든 상태에서 즉시 정지 (상태는 유지)
