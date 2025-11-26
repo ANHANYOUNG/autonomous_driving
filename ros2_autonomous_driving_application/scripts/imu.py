@@ -76,7 +76,7 @@ class WT901CNode(Node):
         self.have_acc = self.have_gyro = self.have_ang = False
 
 
-        self.timer = self.create_timer(0.0005, self.poll)
+        self.timer = self.create_timer(0.01, self.poll)
 
         self.get_logger().info(f'[IMU] 시리얼 포트 {SERIAL_PORT} @ {BAUDRATE}bps, frame_id={FRAME_ID}')
 
