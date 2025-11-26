@@ -9,11 +9,7 @@ import math
 from sensor_msgs.msg import Imu, NavSatFix
 import pyproj
 from tf_transformations import euler_from_quaternion
-from tf_transformations import quaternion_matrix
-from sensor_msgs.msg import JointState
-from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import MagneticField
-from geometry_msgs.msg import Vector3
 from rosgraph_msgs.msg import Clock
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from std_msgs.msg import Bool, String, Int32, Float64
@@ -21,7 +17,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPo
 
 class PurePursuitNode(Node):
     def __init__(self):
-        super().__init__('pure_pursuit_node')
+        super().__init__('pure_pursuit_node_v2')
 
         # ========== 파라미터 선언 ==========
         self.declare_parameter('lookahead_distance', 1.5)  # 런치 인자로 주입됨
@@ -33,18 +29,24 @@ class PurePursuitNode(Node):
         # plot 용
         self.lookahead_pub = self.create_publisher(PoseStamped, '/ppc/lookahead_point', 10)
         self.state_pub = self.create_publisher(String, '/ppc/state', 10)
-        self.idx_pub = self.create_publisher(Int32, '/ppc/lookahead_idx', 10)
         self.heading_error_pub = self.create_publisher(Float64, '/ppc/heading_error', 10)
         self.cte_pub = self.create_publisher(Float64, '/ppc/cte', 10)
         self.waypoint_idx_pub = self.create_publisher(Int32, '/ppc/waypoint_idx', 10)
         self.waypoints_path_pub = self.create_publisher(Path, '/waypoints_path', 10)
         # 미션 완료 시 state machine에 stop 전송
         self.command_pub = self.create_publisher(String, '/state_command', 10)
+        # 센서
+        self.absxy_pub = self.create_publisher(PoseWithCovarianceStamped, '/abs_xy', 1)
 
         # Subscribers
         self.dt_gps = 0.1
+        self.gps_sub = self.create_subscription(NavSatFix, '/navsat', self.gps_callback, 1)
+
         self.dt_imu = 0.01
         self.imu_sub = self.create_subscription(Imu, '/imu_cal', self.imu_callback, 1)
+
+        self.mag_sub = self.create_subscription(MagneticField, '/magnetometer', self.mag_callback, 1)
+        self.clock_sub = self.create_subscription(Clock, '/clock', self.clock_callback, 1)
 
         self.dt_timer = 0.25
         self.timer = self.create_timer(self.dt_timer, self.timer_callback)
@@ -67,21 +69,18 @@ class PurePursuitNode(Node):
             # (9, -0.75), (-9, -0.75),
             # (-9, -2.25), (9, -2.25),
             # (9, -3.75), (-9, -3.75)
-            (-9,9), (-3,9),
-            (-3,7)
+            (-9,9), (-5,9),
+            (-5,7), (-8,7)
             # (-1,5), (-9,5),
             # (-9,1), (-1,1)
         ]
         
         # 런치 인자에서 받은 lookahead_distance 적용
         self.lookahead_distance = self.get_parameter('lookahead_distance').get_parameter_value().double_value
-        self.get_logger().info(f'[RUN] Ld={self.lookahead_distance}m')
-
-        self.lookahead_idx = 1
-        self.interpolated_waypoints = self.interpolate_waypoints(self.waypoints, self.lookahead_distance)
+        self.get_logger().info(f'[RUN] Line Following PPC, Ld={self.lookahead_distance}m')
 
         # 현재 목표 waypoint index (원본 waypoints 기준)
-        self.current_waypoint_idx = 0  # 처음 시작은 waypoint[0] → waypoint[1]로 향함
+        self.current_waypoint_idx = 1  # 처음 시작은 waypoint[0] → waypoint[1]로 향함
 
         self.current_x = None
         self.current_y = None
@@ -90,6 +89,19 @@ class PurePursuitNode(Node):
         self.global_x = None
         self.global_y = None
         self.global_yaw = None
+
+        # 기준점 위도, 경도 (예시: world의 (0,0)에 해당하는 위경도)
+        origin_lat = 37.0
+        origin_lon = 127.0
+
+        # WGS84 -> ENU 변환기 생성
+        self.enu_converter = pyproj.Transformer.from_crs(
+            crs_from="epsg:4326",
+            crs_to=pyproj.CRS.from_proj4(
+                f"+proj=tmerc +lat_0={origin_lat} +lon_0={origin_lon} +k=1 +x_0=0 +y_0=0 +ellps=WGS84"
+            ),
+            always_xy=True
+        )
 
         self.mag_x = 0.0
         self.mag_y = 0.0
@@ -135,6 +147,7 @@ class PurePursuitNode(Node):
         
         # 6. 시각화 데이터 발행
         self.publish_for_plot()
+    
     # ========== Main Control Logic ==========
     def check_run(self):
         # 비활성화 시 정지
@@ -155,105 +168,159 @@ class PurePursuitNode(Node):
         return True
     
     def check_arrival(self):
+        """내적 기반 도착 판정 - 목표 웨이포인트의 수직 평면을 통과했는지 검사"""
         x = self.global_x
         y = self.global_y
         
-        min_idx = self.lookahead_idx
-        last_idx = len(self.interpolated_waypoints) - 1
-        
-        if last_idx < 1:
-            self.get_logger().warn("[RUN] Not enough waypoints")
-            return self.interpolate_waypoints[last_idx]
-        # 완료 판정
-        if min_idx >= last_idx:
-            self.lookahead_idx = last_idx
-            prev_wp = self.interpolated_waypoints[last_idx - 1]
-            curr_wp = self.interpolated_waypoints[last_idx]
-            vec_path = np.array([curr_wp[0] - prev_wp[0], curr_wp[1] - prev_wp[1]])
-            robot_pos = np.array([x, y])
-            vec_robot = np.array([robot_pos[0] - curr_wp[0], robot_pos[1] - curr_wp[1]])
+        # 마지막 waypoint 도달 판정
+        if self.current_waypoint_idx >= len(self.waypoints) - 1:
+            target_wp = self.waypoints[-1]
+            prev_wp = self.waypoints[-2]
+            
+            # 경로 벡터 (이전 → 목표)
+            vec_path = np.array([target_wp[0] - prev_wp[0], target_wp[1] - prev_wp[1]])
+            # 로봇 벡터 (목표 → 로봇)
+            vec_robot = np.array([x - target_wp[0], y - target_wp[1]])
             dot = np.dot(vec_path, vec_robot)
+            
             if dot > 0 and not self.mission_completed:
                 self.get_logger().info("[RUN] Reached final waypoint - Mission completed")
                 self.mission_completed = True
-                # waypoint index를 마지막으로 설정 (plot에서 완료 감지용)
                 self.current_waypoint_idx = len(self.waypoints) - 1
-            return curr_wp
+            return
         
-        # 내적기반 도착 판정 + waypoint index 증가
-        elif min_idx > 0 and min_idx + 1 < len(self.interpolated_waypoints):
-            prev_wp = self.interpolated_waypoints[min_idx - 1]
-            curr_wp = self.interpolated_waypoints[min_idx]
-            robot_pos = np.array([x, y])
-            vec_path = np.array([curr_wp[0] - prev_wp[0], curr_wp[1] - prev_wp[1]])
-            vec_robot = np.array([robot_pos[0] - curr_wp[0], robot_pos[1] - curr_wp[1]])
-            dot = np.dot(vec_path, vec_robot)
+        # 중간 waypoint 도착 판정
+        target_wp = self.waypoints[self.current_waypoint_idx]
+        prev_wp = self.waypoints[self.current_waypoint_idx - 1]
+        
+        vec_path = np.array([target_wp[0] - prev_wp[0], target_wp[1] - prev_wp[1]])
+        vec_robot = np.array([x - target_wp[0], y - target_wp[1]])
+        dot = np.dot(vec_path, vec_robot)
+        
+        if dot > 0:
+            # 수직 평면 통과 → 다음 waypoint로 이동
+            if self.rotate_flag == 1:
+                self.rotate_flag = 0
+                self.state = "rotate"
+                self.get_logger().info("[RUN] Entering rotate state")
             
-            if dot > 0:
-                if self.rotate_flag == 1:
-                    self.rotate_flag = 0
-                    self.state = "rotate"
-                    self.get_logger().info("[RUN] Entering rotate state")
-                    # waypoint 도착 판정 시 index 증가
-                    self.current_waypoint_idx += 1
-                    self.get_logger().info(
-                        f'[RUN] Reached waypoint {self.current_waypoint_idx-1}, '
-                        f'[RUN] moving to waypoint {self.current_waypoint_idx}'
-                    )
-                
-                min_idx += 1
-        
-        # lookahead_point 업데이트
-        self.lookahead_idx = min_idx
+            self.get_logger().info(
+                f'[RUN] Reached waypoint {self.current_waypoint_idx}, '
+                f'moving to waypoint {self.current_waypoint_idx + 1}'
+            )
+            self.current_waypoint_idx += 1
     
     def check_rotate(self):
-        lookahead_point = self.interpolated_waypoints[self.lookahead_idx]
+        """다음 waypoint가 코너인지 판정"""
+        if self.current_waypoint_idx >= len(self.waypoints):
+            return
         
-        # waypoints 중 하나와 lookahead_point의 거리가 0.01 이하이면 회전 플래그 on
-        for wp in self.waypoints:
-            if np.hypot(lookahead_point[0] - wp[0], lookahead_point[1] - wp[1]) < 0.01:
-                self.rotate_flag = 1
-                break
+        target_wp = self.waypoints[self.current_waypoint_idx]
+        dist_to_target = np.hypot(target_wp[0] - self.global_x, target_wp[1] - self.global_y)
+        
+        # 목표 waypoint에 충분히 가까우면 회전 준비
+        if dist_to_target < self.lookahead_distance * 0.5:
+            self.rotate_flag = 1
+    
+    def intersection_point(self, p1, p2, robot_x, robot_y, ld):
+        """
+        로봇 반경(Ld)과 무한한 직선의 교점을 구하고,
+        내적(Dot Product)을 통해 진행 방향의 점을 선택하는 핵심 함수
+        
+        Args:
+            p1: 선분 시작점 (x, y)
+            p2: 선분 끝점 (x, y)
+            robot_x, robot_y: 로봇 현재 위치
+            ld: lookahead distance (원의 반지름)
+        
+        Returns:
+            (x, y): 진행 방향의 교점 좌표, 또는 None (교점 없음)
+        """
+        # 1. 직선 벡터(d)와 로봇 상대 벡터(f)
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        fx = p1[0] - robot_x
+        fy = p1[1] - robot_y
+        
+        # 2. 2차 방정식 계수 및 판별식 (원과 직선의 교점 공식)
+        a = dx**2 + dy**2
+        b = 2 * (fx * dx + fy * dy)
+        c = (fx**2 + fy**2) - ld**2
+        discriminant = b**2 - 4*a*c
+        
+        # 교점이 없는 경우 (선에서 너무 멀어짐)
+        if discriminant < 0:
+            return None
+            
+        # 3. 두 교점(t1, t2) 좌표 계산
+        sqrt_dis = math.sqrt(discriminant)
+        t1 = (-b - sqrt_dis) / (2*a)
+        t2 = (-b + sqrt_dis) / (2*a)
+        
+        i1_x, i1_y = p1[0] + t1 * dx, p1[1] + t1 * dy
+        i2_x, i2_y = p1[0] + t2 * dx, p1[1] + t2 * dy
+        
+        # 4. [핵심] 내적으로 진행 방향(순방향) 점 선택
+        # (경로 벡터) • (로봇->교점 벡터) > 0 인 쪽이 앞쪽
+        dot1 = dx * (i1_x - robot_x) + dy * (i1_y - robot_y)
+        dot2 = dx * (i2_x - robot_x) + dy * (i2_y - robot_y)
+        
+        return (i1_x, i1_y) if dot1 > dot2 else (i2_x, i2_y)
     
     def move_state(self):
+        """Line Following 방식의 Pure Pursuit"""
         x = self.global_x
         y = self.global_y
         yaw = self.global_yaw
         
-        lookahead_point = self.interpolated_waypoints[self.lookahead_idx]
+        # 현재 추종할 선분 정의 (이전 waypoint → 목표 waypoint)
+        if self.current_waypoint_idx < 1:
+            self.current_waypoint_idx = 1
         
+        if self.current_waypoint_idx >= len(self.waypoints):
+            # 마지막 도달 시 정지
+            twist = Twist()
+            return twist
+        
+        p1 = self.waypoints[self.current_waypoint_idx - 1]  # 시작점
+        p2 = self.waypoints[self.current_waypoint_idx]      # 끝점
+        
+        # 로봇 반경(Ld)와 활성 선분의 교점 계산
+        lookahead_point = self.intersection_point(p1, p2, x, y, self.lookahead_distance)
+        
+        # 교점이 없으면 수선의 발(경로 위 가장 가까운 점)을 목표로 복귀 우선
+        if lookahead_point is None:
+            # 선분 위의 가장 가까운 점(수선의 발) 계산
+            dx_seg = p2[0] - p1[0]
+            dy_seg = p2[1] - p1[1]
+            
+            if dx_seg == 0 and dy_seg == 0:
+                # 선분이 점인 경우
+                closest_point = p1
+            else:
+                # 매개변수 t 계산 (0~1 사이로 클램핑)
+                t = max(0, min(1, ((x - p1[0]) * dx_seg + (y - p1[1]) * dy_seg) / (dx_seg**2 + dy_seg**2)))
+                closest_point = (p1[0] + t * dx_seg, p1[1] + t * dy_seg)
+            
+            self.get_logger().warn(
+                f"[RUN] No intersection found (too far from path). "
+                f"Using closest point on segment for recovery."
+            )
+            lookahead_point = closest_point
+        
+        # 목표점까지 거리
         dx = lookahead_point[0] - x
         dy = lookahead_point[1] - y
         ld = np.hypot(dx, dy)
         
-        if ld > self.lookahead_distance * 0.25:
-            # ========== Pure Pursuit 모드 (부드러움 우선) ==========
-            # 차량의 heading 기준 lookahead point의 좌표
+        # Pure Pursuit 곡률 계산
+        if ld > 0.01:  # 너무 가까우면 제어 불안정
+            # 차량 좌표계로 변환
             x_r = math.cos(yaw) * dx + math.sin(yaw) * dy
             y_r = -math.sin(yaw) * dx + math.cos(yaw) * dy
             curvature = 2.0 * y_r / (ld ** 2)
         else:
-            # ========== 정렬 모드 (정확성 우선) ==========
-            # 다음 실제 웨이포인트를 타겟으로 설정
-            if self.current_waypoint_idx < len(self.waypoints):
-                target_wp = self.waypoints[self.current_waypoint_idx]
-            else:
-                # 마지막 웨이포인트 사용
-                target_wp = self.waypoints[-1]
-            
-            # 타겟 웨이포인트 방향 계산
-            dx_target = target_wp[0] - x
-            dy_target = target_wp[1] - y
-            ld_target = np.hypot(dx_target, dy_target)
-            
-            if ld_target > 0.01:  # 거의 도착한 경우 방지
-                # 차량 좌표계로 변환
-                x_r_target = math.cos(yaw) * dx_target + math.sin(yaw) * dy_target
-                y_r_target = -math.sin(yaw) * dx_target + math.cos(yaw) * dy_target
-                # 정렬 곡률 계산
-                curvature = 2.0 * y_r_target / (ld_target ** 2)
-            else:
-                curvature = 0.0
+            curvature = 0.0
         
         # 속도 명령 생성
         twist = Twist()
@@ -264,26 +331,28 @@ class PurePursuitNode(Node):
             twist.linear.x = 0.3
             twist.angular.z = twist.linear.x * curvature
         
+        # plot용으로 lookahead_point 저장
+        self.current_lookahead_point = lookahead_point
+        
         return twist
     
     def rotate_state(self):
+        """제자리 회전으로 다음 경로 방향 정렬"""
         x = self.global_x
         y = self.global_y
         yaw = self.global_yaw
         
-        # 가장 가까운 waypoint(시작점 제외)를 찾음
-        min_wp_dist = float('inf')
-        target_yaw = yaw
-        for i in range(1, len(self.waypoints)):
-            wp = self.waypoints[i]
-            dist = np.hypot(wp[0] - x, wp[1] - y)
-            if dist < min_wp_dist:
-                min_wp_dist = dist
-                prev_wp = wp
-                target_wp = self.waypoints[i + 1]
+        # 현재 waypoint에서 다음 waypoint 방향 계산
+        if self.current_waypoint_idx >= len(self.waypoints):
+            # 마지막 도달 시
+            self.state = "move"
+            return Twist()
         
-        # prev_wp → target_wp 방향을 목표 yaw로 사용
-        target_yaw = math.atan2(target_wp[1] - prev_wp[1], target_wp[0] - prev_wp[0])
+        curr_wp = self.waypoints[self.current_waypoint_idx - 1]
+        next_wp = self.waypoints[self.current_waypoint_idx]
+        
+        # 목표 방향
+        target_yaw = math.atan2(next_wp[1] - curr_wp[1], next_wp[0] - curr_wp[0])
         yaw_error = self.normalize_angle(target_yaw - yaw)
         yaw_error_deg = abs(math.degrees(yaw_error))
         
@@ -291,43 +360,19 @@ class PurePursuitNode(Node):
         if yaw_error_deg < 1.0:
             self.state = "move"
             self.get_logger().info(
-                f" [RUN] Yaw aligned (error {yaw_error_deg:.2f} deg). Switching to move state."
+                f"[RUN] Yaw aligned (error {yaw_error_deg:.2f} deg). Switching to move state."
             )
         else:
             twist.linear.x = 0.0
-            twist.angular.z = np.sign(yaw_error) * (np.pi / 36)  # 10 deg/s, 방향 고려
+            twist.angular.z = np.sign(yaw_error) * (np.pi / 36)  # 10 deg/s
             self.get_logger().info(
-                f"[RUN] Rotating in place. Yaw error: {yaw_error_deg:.2f} current: {math.degrees(yaw):.2f} deg) | "
+                f"[RUN] Rotating in place. Yaw error: {yaw_error_deg:.2f}°"
             )
         
         return twist
 
     def publish_cmd_vel(self, twist):
         self.cmd_pub.publish(twist)
-    
-    def interpolate_waypoints(self, waypoints, lookahead_distance):
-        # 최소 경로점 개수
-        if len(waypoints) < 2:
-            return waypoints
-
-        interpolated = []
-        for i in range(len(waypoints) - 1):
-            x0, y0 = waypoints[i]
-            x1, y1 = waypoints[i + 1]
-            dx = x1 - x0
-            dy = y1 - y0
-            segment_length = np.hypot(dx, dy) # 최소 거리 계산
-            num_points = max(int(segment_length // lookahead_distance), 1) # ld 간격 계산, max()로 1 이상 보장
-            # 두 점 사이를 일정 간격으로 쪼개서 중간 점 만들기
-            for j in range(num_points):
-                t = j * lookahead_distance / segment_length
-                xi = x0 + t * dx
-                yi = y0 + t * dy
-                interpolated.append((xi, yi))
-        # 마지막 점 추가
-        interpolated.append(waypoints[-1])
-
-        return interpolated
 
     # ========== Input ==========
     def ppc_enable_callback(self, msg: Bool):
@@ -335,13 +380,10 @@ class PurePursuitNode(Node):
         if self.is_enabled != msg.data:
             if msg.data:
                 # ========== ENABLE (활성화) ==========
-                # mission_completed가 True면 → 새 미션 시작 (완전 초기화)
-                # mission_completed가 False면 → 일시정지 해제 (진행 상황 유지)
                 if self.mission_completed:
                     # 완전히 새로운 미션 시작
                     self.mission_completed = False
-                    self.current_waypoint_idx = 0
-                    self.lookahead_idx = 1
+                    self.current_waypoint_idx = 1
                     self.state = "move"
                     self.rotate_flag = 0
                     self.get_logger().info('[PPC] ENABLED - Starting NEW mission')
@@ -352,7 +394,6 @@ class PurePursuitNode(Node):
                     )
             else:
                 # ========== DISABLE (비활성화) ==========
-                # 정지 명령만 발행, 진행 상황은 모두 유지
                 self.cmd_pub.publish(self.zero_twist)
                 self.get_logger().info(
                     f'[PPC] PAUSED - State preserved (mission_completed={self.mission_completed})'
@@ -360,13 +401,61 @@ class PurePursuitNode(Node):
                 
         self.is_enabled = msg.data
 
-    def imu_callback(self, msg):
+    def gps_callback(self, msg):
+        lon = msg.longitude
+        lat = msg.latitude
+        x, y = self.enu_converter.transform(lon, lat)
 
-        # 쿼터니언 -> yaw 변환
+        p = PoseWithCovarianceStamped()
+        p.header.stamp = self.get_clock().now().to_msg()
+        p.header.frame_id = 'map'
+        p.pose.pose.position.x = x
+        p.pose.pose.position.y = y
+        p.pose.pose.position.z = 0.0
+        p.pose.pose.orientation.x = 0.0
+        p.pose.pose.orientation.y = 0.0
+        p.pose.pose.orientation.z = 0.0
+        p.pose.pose.orientation.w = 1.0
+
+        p.pose.covariance = [
+            0.04, 0, 0, 0, 0, 0,
+            0, 0.04, 0, 0, 0, 0,
+            0, 0, 1e6, 0, 0, 0,
+            0, 0, 0, 1e6, 0, 0,
+            0, 0, 0, 0, 1e6, 0,
+            0, 0, 0, 0, 0, 1e6,
+        ]
+        self.absxy_pub.publish(p)
+
+    def imu_callback(self, msg):
+        if self.clock_cnt != self.clock_cnt_pre:
+            self.clock_cnt_pre = self.clock_cnt
+
         q = msg.orientation
         quaternion = [q.x, q.y, q.z, q.w]
         _, _, yaw = euler_from_quaternion(quaternion)
-        # self.current_yaw = yaw
+
+    def mag_callback(self, msg: MagneticField):
+        self.mag_x = msg.magnetic_field.x
+        self.mag_y = msg.magnetic_field.y
+        self.mag_z = msg.magnetic_field.z
+
+        self.mag_yaw = math.atan2(self.mag_y, self.mag_x)
+        declination = math.radians(-8.9)
+        self.mag_yaw -= declination
+        
+    def clock_callback(self, msg):
+        self.current_time = msg.clock.sec + msg.clock.nanosec * 1e-9
+
+        if self.current_time == 0.0:
+            self.clock_cnt = 0.0
+        elif self.current_time > self.current_time_pre:
+            self.clock_cnt += 1.0
+            self.current_time_pre = self.current_time
+            
+            if not self.waypoints_published:
+                self.publish_waypoints_path()
+                self.waypoints_published = True
 
     def global_odom_callback(self, msg: Odometry):
         self.global_x = msg.pose.pose.position.x
@@ -406,27 +495,27 @@ class PurePursuitNode(Node):
         y = self.global_y
         yaw = self.global_yaw
         
-        lookahead_point = self.interpolated_waypoints[self.lookahead_idx]
+        # 활성 선분 정의
+        if self.current_waypoint_idx < 1 or self.current_waypoint_idx >= len(self.waypoints):
+            return
         
-        # CTE 계산 (보간된 경로 기준)
-        min_dist = float('inf')
-        for i in range(len(self.interpolated_waypoints) - 1):
-            x1, y1 = self.interpolated_waypoints[i]
-            x2, y2 = self.interpolated_waypoints[i + 1]
-            
-            dx = x2 - x1
-            dy = y2 - y1
-            
-            if dx == 0 and dy == 0:
-                dist = math.hypot(x - x1, y - y1)
-            else:
-                t = max(0, min(1, ((x - x1) * dx + (y - y1) * dy) / (dx**2 + dy**2)))
-                closest_x = x1 + t * dx
-                closest_y = y1 + t * dy
-                dist = math.hypot(x - closest_x, y - closest_y)
-            
-            min_dist = min(min_dist, dist)
-        cte = min_dist
+        p1 = self.waypoints[self.current_waypoint_idx - 1]
+        p2 = self.waypoints[self.current_waypoint_idx]
+        
+        # Lookahead Point 계산 (이미 move_state에서 계산됨)
+        lookahead_point = getattr(self, 'current_lookahead_point', p2)
+        
+        # CTE 계산 (현재 활성 선분까지의 최단 거리)
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        
+        if dx == 0 and dy == 0:
+            cte = math.hypot(x - p1[0], y - p1[1])
+        else:
+            t = max(0, min(1, ((x - p1[0]) * dx + (y - p1[1]) * dy) / (dx**2 + dy**2)))
+            closest_x = p1[0] + t * dx
+            closest_y = p1[1] + t * dy
+            cte = math.hypot(x - closest_x, y - closest_y)
         
         # Heading Error 계산
         target_yaw = math.atan2(lookahead_point[1] - y, lookahead_point[0] - x)
@@ -447,15 +536,10 @@ class PurePursuitNode(Node):
         state_msg.data = self.state
         self.state_pub.publish(state_msg)
         
-        # Waypoint Index 발행 (도착 판정 기반)
+        # Waypoint Index 발행
         waypoint_idx_msg = Int32()
         waypoint_idx_msg.data = self.current_waypoint_idx
         self.waypoint_idx_pub.publish(waypoint_idx_msg)
-        
-        # Lookahead Index 발행
-        idx_msg = Int32()
-        idx_msg.data = self.lookahead_idx
-        self.idx_pub.publish(idx_msg)
         
         # Heading Error 발행
         heading_msg = Float64()
