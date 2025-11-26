@@ -34,6 +34,7 @@ install(PROGRAMS
   scripts/imu_offset.py
   # control
   scripts/ppc.py
+  scripts/ppc_real.py
   # wifi
   scripts/app_wifi_rx.py
   scripts/app_wifi_tx.py
@@ -54,6 +55,7 @@ install(PROGRAMS
   # plot
   scripts/plot_calibration.py
   scripts/plot_ppc.py
+  
   DESTINATION lib/${PROJECT_NAME}
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
 )

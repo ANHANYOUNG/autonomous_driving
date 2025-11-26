@@ -69,6 +69,10 @@ class StateMachineExecutor(Node):
         self.cal_uwb_points = []  # [(x, y), ...] UWB 위치 데이터
         self.cal_imu_yaws = []    # [yaw, ...] IMU Yaw 데이터
         
+        # CAL 반복별 구간 인덱스 기록
+        self.cal_rep_indices = []  # [(forward_start, forward_end, backward_end), ...]
+        self.cal_rep_start_idx = 0  # 현재 반복의 시작 인덱스
+        
         # CAL 전용 위치 변수 (제거 - UWB/IMU 직접 사용)
         # self.cal_current_x = 0.0
         # self.cal_current_y = 0.0
@@ -85,8 +89,12 @@ class StateMachineExecutor(Node):
         self.backward_time = 5.0
         self.forward_speed = 0.30
         self.backward_speed = -0.30
+        self.num_repetitions = 3  # ★ 전후진 반복 횟수 (변경 가능)
         self.calculated_yaw_error = 0.0
         self.max_yaw_correction_deg = 360.0
+        
+        # CAL 반복 카운터
+        self.cal_current_rep = 0  # 현재 반복 횟수 (0부터 시작)
         
         # CAL Data Logging
         self.cal_data_dir = os.path.expanduser('~/calibration_data')
@@ -193,6 +201,8 @@ class StateMachineExecutor(Node):
         elif new_state == 'CALIBRATION':
             self.cal_uwb_points = []
             self.cal_imu_yaws = []
+            self.cal_rep_indices = []  # 반복별 구간 인덱스 초기화
+            self.cal_rep_start_idx = 0  # 시작 인덱스 초기화
             self.calculated_yaw_error = 0.0
             self.cal_state = 'FORWARD'
             self.cal_start_time = self.get_clock().now()
@@ -200,6 +210,9 @@ class StateMachineExecutor(Node):
             # 시간 보상 변수 초기화
             self.cal_pause_start_time = None
             self.cal_total_paused_duration = 0.0
+            
+            # 반복 카운터 초기화
+            self.cal_current_rep = 0
             
             # 세션 데이터 초기화
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -211,12 +224,15 @@ class StateMachineExecutor(Node):
                     'forward_time': self.forward_time,
                     'backward_time': self.backward_time,
                     'forward_speed': self.forward_speed,
-                    'backward_speed': self.backward_speed
+                    'backward_speed': self.backward_speed,
+                    'num_repetitions': self.num_repetitions  # ★ 파라미터 기록
                 },
                 'results': {}
             }
 
-            self.get_logger().info('[STATE_MACHINE] CALIBRATION: Started')
+            self.get_logger().info(
+                f'[STATE_MACHINE] CALIBRATION: Started ({self.num_repetitions} repetitions)'
+            )
 
         elif new_state == 'ALIGN':
             self.align_state = 'ALIGN_ROTATE_1'
@@ -339,26 +355,68 @@ class StateMachineExecutor(Node):
             tw = Twist()
             tw.linear.x = self.forward_speed
             self.cal_pub.publish(tw)
+            
             if dt >= self.forward_time:
+                # Forward 구간 종료 인덱스 기록
+                forward_end_idx = len(self.cal_uwb_points) - 1
+                
                 self.cal_state = 'BACKWARD'
                 self.cal_start_time = now
                 self.get_logger().info(
-                    f'[CAL] Forward complete -> Backward\n'
-                    f'  UWB: {len(self.cal_uwb_points)} points, IMU: {len(self.cal_imu_yaws)} values'
+                    f'[CAL] Rep {self.cal_current_rep + 1}/{self.num_repetitions}: Forward complete -> Backward\n'
+                    f'  Forward range: [{self.cal_rep_start_idx}, {forward_end_idx}] ({forward_end_idx - self.cal_rep_start_idx + 1} points)\n'
+                    f'  Total - UWB: {len(self.cal_uwb_points)} points, IMU: {len(self.cal_imu_yaws)} values'
                 )
+                
+                # 임시로 forward_end_idx 저장 (backward 끝나면 완성)
+                self.cal_forward_end_idx = forward_end_idx
 
         elif self.cal_state == 'BACKWARD':
             tw = Twist()
             tw.linear.x = self.backward_speed
             self.cal_pub.publish(tw)
+            
             if dt >= self.backward_time:
-                self.cal_state = 'CALCULATING'
-                self.cal_start_time = now
-                self.cal_pub.publish(self.zero_twist)
-                self.get_logger().info(
-                    f'[CAL] Backward complete -> Calculating\n'
-                    f'  UWB: {len(self.cal_uwb_points)} points, IMU: {len(self.cal_imu_yaws)} values'
-                )
+                # Backward 구간 종료 인덱스 기록
+                backward_end_idx = len(self.cal_uwb_points) - 1
+                
+                # 현재 반복의 구간 인덱스 저장
+                self.cal_rep_indices.append({
+                    'rep_num': self.cal_current_rep + 1,
+                    'forward_start': self.cal_rep_start_idx,
+                    'forward_end': self.cal_forward_end_idx,
+                    'backward_end': backward_end_idx,
+                    'num_forward_points': self.cal_forward_end_idx - self.cal_rep_start_idx + 1,
+                    'num_backward_points': backward_end_idx - self.cal_forward_end_idx
+                })
+                
+                # 반복 카운터 증가
+                self.cal_current_rep += 1
+                
+                # 반복 완료 여부 확인
+                if self.cal_current_rep >= self.num_repetitions:
+                    # ★ 모든 반복 완료 → 계산 단계로
+                    self.cal_state = 'CALCULATING'
+                    self.cal_start_time = now
+                    self.cal_pub.publish(self.zero_twist)
+                    self.get_logger().info(
+                        f'[CAL] All {self.num_repetitions} repetitions complete -> Calculating\n'
+                        f'  Backward range: [{self.cal_forward_end_idx + 1}, {backward_end_idx}] ({backward_end_idx - self.cal_forward_end_idx} points)\n'
+                        f'  Total UWB: {len(self.cal_uwb_points)} points, IMU: {len(self.cal_imu_yaws)} values'
+                    )
+                else:
+                    # ★ 다음 반복 시작 → FORWARD로 복귀
+                    # 다음 반복의 시작 인덱스 설정
+                    self.cal_rep_start_idx = backward_end_idx + 1
+                    
+                    self.cal_state = 'FORWARD'
+                    self.cal_start_time = now
+                    self.get_logger().info(
+                        f'[CAL] Rep {self.cal_current_rep}/{self.num_repetitions}: Backward complete -> Next Forward\n'
+                        f'  Backward range: [{self.cal_forward_end_idx + 1}, {backward_end_idx}] ({backward_end_idx - self.cal_forward_end_idx} points)\n'
+                        f'  Next rep starts at index {self.cal_rep_start_idx}\n'
+                        f'  Total - UWB: {len(self.cal_uwb_points)} points, IMU: {len(self.cal_imu_yaws)} values'
+                    )
                 
         elif self.cal_state == 'CALCULATING':
             # 최소 데이터 확인
@@ -456,6 +514,8 @@ class StateMachineExecutor(Node):
             # 결과 저장
             if self.cal_session_data is not None:
                 self.cal_session_data['results'] = {
+                    'num_repetitions_completed': self.cal_current_rep,  # ★ 완료된 반복 횟수
+                    'repetition_indices': self.cal_rep_indices,  # ★ 각 반복의 구간 정보
                     'num_uwb_points': len(self.cal_uwb_points),
                     'num_uwb_forward': len(uwb_forward),
                     'max_dist_idx': int(max_dist_idx),
