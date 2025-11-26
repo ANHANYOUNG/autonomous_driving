@@ -144,21 +144,21 @@ class AppWiFiReceiver(Node):
                 speed_msg = String()
                 speed_msg.data = str(json_data['speed_bits'])
                 self.speed_bits_pub.publish(speed_msg)
-                self.get_logger().info(f'[WIFI_RX] Received speed_bits: {json_data["speed_bits"]}')
+                self.get_logger().debug(f'[WIFI_RX] Received speed_bits: {json_data["speed_bits"]}')
 
             # video_bit = 0 or 1
             if 'video_bit' in json_data:
                 video_msg = String()
                 video_msg.data = str(json_data['video_bit'])
                 self.video_bit_pub.publish(video_msg)
-                self.get_logger().info(f'[WIFI_RX] Received video_bit: {json_data["video_bit"]}')
+                self.get_logger().debug(f'[WIFI_RX] Received video_bit: {json_data["video_bit"]}')
 
             # safe_bit = 0 or 1
             if 'safe_bit' in json_data:
                 safe_msg = String()
                 safe_msg.data = str(json_data['safe_bit'])
                 self.safe_bit_pub.publish(safe_msg)
-                self.get_logger().info(f'[WIFI_RX] Received safe_bit: {json_data["safe_bit"]}')
+                self.get_logger().debug(f'[WIFI_RX] Received safe_bit: {json_data["safe_bit"]}')
 
             # 통계 로그 (10개마다 출력)
             if self.data_count % 10 == 0:
