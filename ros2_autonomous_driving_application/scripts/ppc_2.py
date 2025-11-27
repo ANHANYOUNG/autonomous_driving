@@ -126,6 +126,19 @@ class PurePursuitNode(Node):
         if not self.check_run():
             return
         
+        # 주행 시작할 때 계산
+        if hasattr(self, 'current_odom_msg') and self.current_odom_msg is not None:
+            msg = self.current_odom_msg
+            self.global_x = msg.pose.pose.position.x
+            self.global_y = msg.pose.pose.position.y
+            q = msg.pose.pose.orientation
+            # 무거운 연산은 여기서 수행
+            _, _, self.global_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        
+        # 데이터가 아직 한 번도 안 들어왔으면 리턴 
+        if self.global_x is None or self.global_y is None or self.global_yaw is None:
+            return
+        
         # 2. 도착 판정 및 상태 갱신
         self.check_arrival()
         
@@ -155,10 +168,6 @@ class PurePursuitNode(Node):
         if self.mission_completed:
             self.cmd_pub.publish(self.zero_twist)
             self.command_pub.publish(String(data="STOP"))
-            return False
-        
-        # EKF 위치 정보가 없으면 종료
-        if self.global_x is None or self.global_y is None or self.global_yaw is None:
             return False
         
         return True
@@ -437,11 +446,7 @@ class PurePursuitNode(Node):
                 self.waypoints_published = True
 
     def global_odom_callback(self, msg: Odometry):
-        self.global_x = msg.pose.pose.position.x
-        self.global_y = msg.pose.pose.position.y
-        
-        q = msg.pose.pose.orientation
-        _, _, self.global_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        self.current_odom_msg = msg
 
     # ========== Utility ==========
     def normalize_angle(self, angle):

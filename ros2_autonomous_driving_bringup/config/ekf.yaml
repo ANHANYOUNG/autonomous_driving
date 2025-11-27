@@ -6,7 +6,7 @@
 ekf_single:
   ros__parameters:
     # 기본 루프/타임아웃
-    frequency: 100.0               # 30~100Hz 아무거나 ok (IMU 속도에 맞춰 조정)
+    frequency: 50.0               # 30~100Hz 아무거나 ok (IMU 속도에 맞춰 조정)
     sensor_timeout: 0.5           # /abs_xy가 4Hz라면 0.4~0.5s 권장
     two_d_mode: true # 발산 위험 감소
     publish_tf: true                # map -> chassis_link 퍼블리시

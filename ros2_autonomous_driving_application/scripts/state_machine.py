@@ -37,7 +37,6 @@ class StateMachineExecutor(Node):
         self.ppc_enable_pub = self.create_publisher(Bool, '/ppc/enable', 5)
         self.ppc_enable_pub.publish(Bool(data=False))
         self.ppc_enabled = False
-        self.ppc_publish_timer = self.create_timer(1.0, self.publish_ppc_enable) # ppc_enable 1초마다 발행
 
         # 4. 구독 (Subscriptions)
         self.create_subscription(String, '/robot_state', self.state_callback, 10)
@@ -53,10 +52,8 @@ class StateMachineExecutor(Node):
         self.yaw_offset_est = 0.0
         
         # UWB + IMU 직접 구독 (EKF 배제)
-        self.uwb_sub = self.create_subscription(
-            PoseWithCovarianceStamped, '/abs_xy', self.uwb_callback, 10)
-        self.imu_cal_sub = self.create_subscription(
-            Imu, '/imu_cal', self.imu_cal_callback, 10)
+        self.uwb_sub = self.create_subscription(PoseWithCovarianceStamped, '/abs_xy', self.uwb_callback, 10)
+        self.imu_cal_sub = self.create_subscription(Imu, '/imu_cal', self.imu_cal_callback, 10)
         
         # EKF는 ALIGN 상태에서만 사용
         self.odom_sub = self.create_subscription(Odometry, '/odometry/ekf_single', self.odom_callback, 10)
@@ -76,7 +73,7 @@ class StateMachineExecutor(Node):
         # CAL 전용 위치 변수 (제거 - UWB/IMU 직접 사용)
         # self.cal_current_x = 0.0
         # self.cal_current_y = 0.0
-        # self.cal_current_yaw = 0.0
+        # self.cal_current_yaw = 0.0    
         # self.cal_points = []
         self.cal_start_time = None
         
@@ -120,12 +117,31 @@ class StateMachineExecutor(Node):
         self.align_angular_speed = 0.2
         self.align_yaw_threshold = 0.01 # 약 0.57도
         
+        # 로그 출력 제어 (변화 감지용)
+        self.last_log_uwb_count = 0
+        self.last_log_imu_count = 0
+        self.last_log_align_state = None
+        self.last_log_align_distance = None
+        self.last_log_align_yaw_error = None
+        
         # 타이머 (마지막에 생성)
-        self.publish_timer = self.create_timer(1, self.state_machine_loop)
+        self.publish_timer = self.create_timer(0.1, self.state_machine_loop)
 
     # ========== State Machine Loop ==========
     def state_machine_loop(self):
-        """1초마다 실행되는 루프"""
+        """0.1초마다 실행되는 루프"""
+        # PPC enable 주기적 발행 (1초마다 = 10번에 1번, timer 통일해서 부하 낮추기 )
+        if hasattr(self, '_loop_counter'):
+            self._loop_counter += 1
+        else:
+            self._loop_counter = 0
+        
+        if self._loop_counter % 10 == 0:  # 1초마다
+            if self.ppc_enabled and not self.person_detected:
+                self.ppc_enable_pub.publish(Bool(data=True))
+            else:
+                self.ppc_enable_pub.publish(Bool(data=False))
+        
         # ========== 검문소: 사람 감지 시 일시정지 ==========
         if self.person_detected:
             # 모든 상태에서 즉시 정지 (상태는 유지)
@@ -150,14 +166,6 @@ class StateMachineExecutor(Node):
 
         elif self.current_state == 'ALIGN':
             self.align_callback()
-
-    # ========== ppc_enable ==========
-    def publish_ppc_enable(self):
-        """1초마다 PPC enable 상태 발행"""
-        if self.ppc_enabled and not self.person_detected:
-            self.ppc_enable_pub.publish(Bool(data=self.ppc_enabled))
-        else:
-            self.ppc_enable_pub.publish(Bool(data=False))
 
     # ========== State Transition ==========
     def state_callback(self, msg):
@@ -282,12 +290,12 @@ class StateMachineExecutor(Node):
     # ========== Sensor & Input ==========
     def odom_callback(self, msg):
         """EKF 오도메트리 수신"""
-        self.current_ekf = msg
+        # ALIGN 모드가 아니면 데이터 저장도 하지 않고 바로 리턴
+        if self.current_state != 'ALIGN':
+            return
 
-        if self.current_state == 'ALIGN':
-            self.align_current_x = msg.pose.pose.position.x
-            self.align_current_y = msg.pose.pose.position.y
-            self.align_current_yaw = self._yaw_from_quat(msg.pose.pose.orientation)
+        # 무거운 쿼터니언->Yaw 변환을 여기서 하지 않고 메시지만 저장
+        self.current_ekf = msg
     
     def uwb_callback(self, msg: PoseWithCovarianceStamped):
         """UWB 절대 위치 수신 (/abs_xy)"""
@@ -311,8 +319,9 @@ class StateMachineExecutor(Node):
         
         self.cal_uwb_points.append((x, y))
         
-        # 로그 (1초마다)
-        if len(self.cal_uwb_points) % 10 == 0:
+        # 로그 (10개 단위로, 변화가 있을 때만)
+        if len(self.cal_uwb_points) // 10 > self.last_log_uwb_count:
+            self.last_log_uwb_count = len(self.cal_uwb_points) // 10
             self.get_logger().info(
                 f'[CAL] UWB data collected: {len(self.cal_uwb_points)} points'
             )
@@ -333,8 +342,9 @@ class StateMachineExecutor(Node):
         yaw = self._yaw_from_quat(msg.orientation)
         self.cal_imu_yaws.append(yaw)
         
-        # 로그 (1초마다)
-        if len(self.cal_imu_yaws) % 100 == 0:
+        # 로그 (100개 단위로, 변화가 있을 때만)
+        if len(self.cal_imu_yaws) // 100 > self.last_log_imu_count:
+            self.last_log_imu_count = len(self.cal_imu_yaws) // 100
             self.get_logger().info(
                 f'[CAL] IMU data collected: {len(self.cal_imu_yaws)} yaw values'
             )
@@ -603,11 +613,15 @@ class StateMachineExecutor(Node):
     # TODO align 제어
     def align_callback(self):
         """ALIGN 단계별 실행"""
-        if self.current_ekf is None:
-            self.get_logger().warn('[ALIGN] No odometry data')
+        # 저장된 데이터가 없으면 리턴
+        if not hasattr(self, 'current_ekf') or self.current_ekf is None:
             self.align_cmd_vel_pub.publish(self.zero_twist)
             return
-        
+        # ekf 좌표값으로 계산
+        msg = self.current_ekf
+        self.align_current_x = msg.pose.pose.position.x
+        self.align_current_y = msg.pose.pose.position.y
+        self.align_current_yaw = self._yaw_from_quat(msg.pose.pose.orientation)
         twist_msg = Twist()
         
         if self.align_state == 'ALIGN_ROTATE_1':
@@ -617,12 +631,20 @@ class StateMachineExecutor(Node):
                 target_pos[0] - self.align_current_x)
             yaw_error = self._normalize_angle(angle_to_target - self.align_current_yaw)
             
-            self.get_logger().info(f'[ALIGN] ROTATE_1: Error={math.degrees(yaw_error):.1f}°')
+            # 상태 변화 또는 큰 오차 변화 시에만 로그
+            yaw_error_deg = math.degrees(yaw_error)
+            if (self.last_log_align_state != 'ALIGN_ROTATE_1' or 
+                self.last_log_align_yaw_error is None or
+                abs(yaw_error_deg - self.last_log_align_yaw_error) > 5.0):
+                self.get_logger().info(f'[ALIGN] ROTATE_1: Error={yaw_error_deg:.1f}°')
+                self.last_log_align_state = 'ALIGN_ROTATE_1'
+                self.last_log_align_yaw_error = yaw_error_deg
             
             if abs(yaw_error) < self.align_yaw_threshold:
                 self.align_state = 'ALIGN_FORWARD'
                 self.start_pos_for_dot_product = (self.align_current_x, self.align_current_y)
                 self.get_logger().info('[ALIGN] Rotation complete -> Forward')
+                self.last_log_align_state = None
             else:
                 twist_msg.angular.z = np.clip(yaw_error, -self.align_angular_speed, self.align_angular_speed)
 
@@ -631,7 +653,6 @@ class StateMachineExecutor(Node):
             prev_wp = np.array(self.start_pos_for_dot_product)
             curr_wp = np.array(target_pos)
             robot_pos = np.array([self.align_current_x, self.align_current_y])
-
             vec_path = curr_wp - prev_wp
             vec_robot = robot_pos - curr_wp
 
@@ -642,11 +663,19 @@ class StateMachineExecutor(Node):
                 dot = np.dot(vec_path_norm, vec_robot)
             
             distance = np.linalg.norm(robot_pos - curr_wp)
-            self.get_logger().info(f'[ALIGN] FORWARD: Distance={distance:.2f}m, Dot={dot:.3f}')
+            
+            # 거리 변화가 0.5m 이상일 때만 로그
+            if (self.last_log_align_state != 'ALIGN_FORWARD' or
+                self.last_log_align_distance is None or
+                abs(distance - self.last_log_align_distance) > 0.5):
+                self.get_logger().info(f'[ALIGN] FORWARD: Distance={distance:.2f}m, Dot={dot:.3f}')
+                self.last_log_align_state = 'ALIGN_FORWARD'
+                self.last_log_align_distance = distance
             
             if dot > 0.0:
                 self.align_state = 'ALIGN_ROTATE_2'
                 self.get_logger().info('[ALIGN] Forward complete -> Final rotation')
+                self.last_log_align_state = None
             else:
                 twist_msg.linear.x = self.align_linear_speed
                 
@@ -654,11 +683,19 @@ class StateMachineExecutor(Node):
             target_yaw = self.align_target_yaw
             yaw_error = self._normalize_angle(target_yaw - self.align_current_yaw)
             
-            self.get_logger().info(f'[ALIGN] ROTATE_2: Error={math.degrees(yaw_error):.1f}°')
+            # 상태 변화 또는 큰 오차 변화 시에만 로그
+            yaw_error_deg = math.degrees(yaw_error)
+            if (self.last_log_align_state != 'ALIGN_ROTATE_2' or
+                self.last_log_align_yaw_error is None or
+                abs(yaw_error_deg - self.last_log_align_yaw_error) > 5.0):
+                self.get_logger().info(f'[ALIGN] ROTATE_2: Error={yaw_error_deg:.1f}°')
+                self.last_log_align_state = 'ALIGN_ROTATE_2'
+                self.last_log_align_yaw_error = yaw_error_deg
             
             if abs(yaw_error) < self.align_yaw_threshold:
                 self.align_state = 'Finished'
                 self.get_logger().info('[ALIGN] Final rotation complete -> Finished')
+                self.last_log_align_state = None
             else:
                 twist_msg.angular.z = np.clip(yaw_error, -self.align_angular_speed, self.align_angular_speed)
                 

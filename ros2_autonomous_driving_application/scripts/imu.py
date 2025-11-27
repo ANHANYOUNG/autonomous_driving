@@ -63,7 +63,7 @@ class WT901CNode(Node):
 
  
         # '/imu/data' 토픽 발행
-        self.pub = self.create_publisher(Imu, '/imu/data', 10)
+        self.pub = self.create_publisher(Imu, '/imu_data', 10)
 
         self.ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=0.01)
         self.buf = bytearray()
@@ -76,7 +76,7 @@ class WT901CNode(Node):
         self.have_acc = self.have_gyro = self.have_ang = False
 
 
-        self.timer = self.create_timer(0.01, self.poll)
+        self.timer = self.create_timer(0.02, self.poll)
 
         self.get_logger().info(f'[IMU] 시리얼 포트 {SERIAL_PORT} @ {BAUDRATE}bps, frame_id={FRAME_ID}')
 

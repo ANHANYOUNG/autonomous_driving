@@ -39,8 +39,11 @@ class AppDataHandler(BaseHTTPRequestHandler):
                 self.send_header('Access-Control-Allow-Origin', '*')  # CORS 허용
                 self.end_headers()
                 
-                response = {"status": "success", "message": "Data received"}
-                self.wfile.write(json.dumps(response).encode('utf-8'))
+                # response = {"status": "success", "message": "Data received"}
+                # self.wfile.write(json.dumps(response).encode('utf-8'))
+
+                # 매번 json.dumps 하지 않고 고정된 바이트 문자열 전송 (CPU 절약)
+                self.wfile.write(b'{"status":"ok"}')
                 
             except json.JSONDecodeError as e:
                 # JSON 파싱 에러
@@ -121,54 +124,54 @@ class AppWiFiReceiver(Node):
             current_time = self.get_clock().now()
             
             # 전체 JSON 데이터를 원시 데이터로 발행
-            raw_msg = String()
-            raw_msg.data = json.dumps(json_data)
-            self.raw_app_data_pub.publish(raw_msg)
+            # raw_msg = String()
+            # raw_msg.data = json.dumps(json_data)
+            # self.raw_app_data_pub.publish(raw_msg)
             
             # sw_bits 데이터 발행
             if 'sw_bits' in json_data:
                 sw_msg = String()
                 sw_msg.data = str(json_data['sw_bits'])
                 self.sw_bits_pub.publish(sw_msg)
-                self.get_logger().debug(f'[WIFI_RX] Published sw_bits: {json_data["sw_bits"]}')
+                # self.get_logger().debug(f'[WIFI_RX] Published sw_bits: {json_data["sw_bits"]}')
             
             # key_bits 데이터 발행
             if 'key_bits' in json_data:
                 key_msg = String()
                 key_msg.data = str(json_data['key_bits'])
                 self.key_bits_pub.publish(key_msg)
-                self.get_logger().debug(f'[WIFI_RX] Published key_bits: {json_data["key_bits"]}')
+                # self.get_logger().debug(f'[WIFI_RX] Published key_bits: {json_data["key_bits"]}')
 
             # speed_bits 속도 조절 데이터 발행
             if 'speed_bits' in json_data:
                 speed_msg = String()
                 speed_msg.data = str(json_data['speed_bits'])
                 self.speed_bits_pub.publish(speed_msg)
-                self.get_logger().debug(f'[WIFI_RX] Received speed_bits: {json_data["speed_bits"]}')
+                # self.get_logger().debug(f'[WIFI_RX] Received speed_bits: {json_data["speed_bits"]}')
 
             # video_bit = 0 or 1
             if 'video_bit' in json_data:
                 video_msg = String()
                 video_msg.data = str(json_data['video_bit'])
                 self.video_bit_pub.publish(video_msg)
-                self.get_logger().debug(f'[WIFI_RX] Received video_bit: {json_data["video_bit"]}')
+                # self.get_logger().debug(f'[WIFI_RX] Received video_bit: {json_data["video_bit"]}')
 
             # safe_bit = 0 or 1
             if 'safe_bit' in json_data:
                 safe_msg = String()
                 safe_msg.data = str(json_data['safe_bit'])
                 self.safe_bit_pub.publish(safe_msg)
-                self.get_logger().debug(f'[WIFI_RX] Received safe_bit: {json_data["safe_bit"]}')
+                # self.get_logger().debug(f'[WIFI_RX] Received safe_bit: {json_data["safe_bit"]}')
 
             # 통계 로그 (10개마다 출력)
-            if self.data_count % 10 == 0:
-                self.get_logger().info(f'[WIFI_RX] Received {self.data_count} app data packets')
+            # if self.data_count % 10 == 0:
+            #     self.get_logger().info(f'[WIFI_RX] Received {self.data_count} app data packets')
 
             # 데이터 수신 간격 계산 (처음이 아닌 경우)
-            if self.last_data_time:
-                interval = (current_time.nanoseconds - self.last_data_time.nanoseconds) / 1e9
-                if interval > 1.0:  # 1초 이상 간격이면 로그
-                    self.get_logger().warn(f'[WIFI_RX] Large data interval: {interval:.2f}s')
+            # if self.last_data_time:
+            #     interval = (current_time.nanoseconds - self.last_data_time.nanoseconds) / 1e9
+            #     if interval > 1.0:  # 1초 이상 간격이면 로그
+            #         self.get_logger().warn(f'[WIFI_RX] Large data interval: {interval:.2f}s')
 
             self.last_data_time = current_time
             

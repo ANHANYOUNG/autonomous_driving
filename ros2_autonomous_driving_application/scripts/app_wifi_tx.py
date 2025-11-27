@@ -21,11 +21,16 @@ class AppDataHandler(BaseHTTPRequestHandler):
         """GET 요청 처리"""
         if self.path == '/to_app':
             try:
-                # ROS 노드에서 최신 UWB 데이터 가져오기
+                # ROS 노드에서 최신 UWB 데이터 가져오기, CPU 과부하 방식
+                # if self.ros_node:
+                #     json_data = self.ros_node.get_uwb_json_data()
+                # else:
+                #     json_data = {"error": "ROS node not available"}
+                # CPU 적게 쓰는 방식
                 if self.ros_node:
-                    json_data = self.ros_node.get_uwb_json_data()
+                    json_str = self.ros_node.get_uwb_json_data()
                 else:
-                    json_data = {"error": "ROS node not available"}
+                    json_str = json.dumps({"error": "ROS node not available"})
                 
                 # 성공 응답
                 self.send_response(200)
@@ -34,7 +39,11 @@ class AppDataHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 
                 # JSON 데이터 전송
-                self.wfile.write(json.dumps(json_data).encode('utf-8'))
+                # 기존 방식
+                # self.wfile.write(json.dumps(json_data).encode('utf-8'))
+                
+                # CPU 적게 쓰는 방식
+                self.wfile.write(json_str.encode('utf-8'))
                 
             except Exception as e:
                 # 서버 에러
@@ -246,8 +255,14 @@ class AppWiFiTransmitter(Node):
                 if "No anchor data available" not in self.uwb_json_data["err_msg"]:
                     self.uwb_json_data["err_msg"].append("No anchor data available")
             
-            # 최신 데이터 반환 (깊은 복사)
-            return json.loads(json.dumps(self.uwb_json_data))
+            # # 최신 데이터 반환 (깊은 복사), 에러 방지용 but cpu 너무 많이 쓰는 중
+            # 1차 변환 딕셔너리 - 문자열 (json.dumps)
+            # 2차 변환 문자열 - 다시 딕셔너리 (json.loads)
+            # 3차 변환 딕셔너리 - 문자열로 압축 (do_GET 에서 다시 json.dumps)
+            # return json.loads(json.dumps(self.uwb_json_data))
+
+            # CPU 적게 쓰는 방식 - 문자열 바로 반환
+            return json.dumps(self.uwb_json_data)
     
     def destroy_node(self):
         """노드 종료 시 HTTP 서버 정리"""

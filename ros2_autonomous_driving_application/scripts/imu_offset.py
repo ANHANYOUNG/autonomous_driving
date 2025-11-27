@@ -7,12 +7,14 @@ from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Float64
 from tf_transformations import quaternion_from_euler, quaternion_multiply
+
     # z축 회전행렬, 각속도/선가속도 벡터에 곱할 때 사용
 def Rz(theta):
     c, s = math.cos(theta), math.sin(theta)
     return np.array([[ c,-s, 0.0],
                      [ s, c, 0.0],
                      [0.0,0.0, 1.0]], dtype=float)
+
     # 쿼터니언 단위화,  수치오차로 인한 NaN/발산 방지
 def normalize_quat(q):
     # q = [x,y,z,w]

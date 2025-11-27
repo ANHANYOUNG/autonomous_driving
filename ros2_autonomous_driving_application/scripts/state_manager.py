@@ -14,7 +14,7 @@ class StateManager(Node):
         # 1. 파라미터 및 내부 상태 변수
         self.declare_parameter('initial_state', 'STOP')
         self.state = self.get_parameter('initial_state').get_parameter_value().string_value
-
+        self.last_logged_state = None
         # 2. 발행 (Publication)
         self.state_pub = self.create_publisher(String, '/robot_state', 10)
         
@@ -66,7 +66,9 @@ class StateManager(Node):
         state_msg = String()
         state_msg.data = self.state
         self.state_pub.publish(state_msg)
-        self.get_logger().info(f'[STATE_MANAGER] Publishing state: {self.state}')
+        if self.state != self.last_logged_state:
+            self.get_logger().info(f'[STATE_MANAGER] Publishing state: {self.state}')
+            self.last_logged_state = self.state
 
 
 def main(args=None):

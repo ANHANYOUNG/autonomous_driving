@@ -118,6 +118,19 @@ class PurePursuitNode(Node):
         if not self.check_run():
             return
         
+        # 주행 시작할 때 계산
+        if hasattr(self, 'current_odom_msg') and self.current_odom_msg is not None:
+            msg = self.current_odom_msg
+            self.global_x = msg.pose.pose.position.x
+            self.global_y = msg.pose.pose.position.y
+            q = msg.pose.pose.orientation
+            # 무거운 연산은 여기서 수행
+            _, _, self.global_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        
+        # 데이터가 아직 한 번도 안 들어왔으면 리턴 
+        if self.global_x is None or self.global_y is None or self.global_yaw is None:
+            return
+        
         # 2. 도착 판정 및 상태 갱신
         self.check_arrival()
         
@@ -360,20 +373,8 @@ class PurePursuitNode(Node):
                 
         self.is_enabled = msg.data
 
-    def imu_callback(self, msg):
-
-        # 쿼터니언 -> yaw 변환
-        q = msg.orientation
-        quaternion = [q.x, q.y, q.z, q.w]
-        _, _, yaw = euler_from_quaternion(quaternion)
-        # self.current_yaw = yaw
-
     def global_odom_callback(self, msg: Odometry):
-        self.global_x = msg.pose.pose.position.x
-        self.global_y = msg.pose.pose.position.y
-        
-        q = msg.pose.pose.orientation
-        _, _, self.global_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        self.current_odom_msg = msg
 
     # ========== Utility ==========
     def normalize_angle(self, angle):
@@ -406,11 +407,23 @@ class PurePursuitNode(Node):
         y = self.global_y
         yaw = self.global_yaw
         
+        # 예외 처리: 위치 정보나 경로가 없으면 계산 스킵
+        if x is None or not self.interpolated_waypoints:
+            return
+
         lookahead_point = self.interpolated_waypoints[self.lookahead_idx]
         
-        # CTE 계산 (보간된 경로 기준)
+        # [최적화] CTE 계산 범위를 전체 경로가 아닌 '현재 위치 주변'으로 제한
+        search_range = 20 
+        
+        # 인덱스가 리스트 범위를 벗어나지 않도록 clamp (0 ~ 리스트 끝)
+        start_idx = max(0, self.lookahead_idx - search_range)
+        end_idx = min(len(self.interpolated_waypoints) - 1, self.lookahead_idx + search_range)
+        
         min_dist = float('inf')
-        for i in range(len(self.interpolated_waypoints) - 1):
+        
+        # [최적화] 줄어든 범위(start_idx ~ end_idx)만 루프 수행 -> CPU 사용량 대폭 감소
+        for i in range(start_idx, end_idx):
             x1, y1 = self.interpolated_waypoints[i]
             x2, y2 = self.interpolated_waypoints[i + 1]
             
@@ -420,12 +433,19 @@ class PurePursuitNode(Node):
             if dx == 0 and dy == 0:
                 dist = math.hypot(x - x1, y - y1)
             else:
-                t = max(0, min(1, ((x - x1) * dx + (y - y1) * dy) / (dx**2 + dy**2)))
+                # 점과 선분 사이의 거리 계산 (투영 및 클램핑)
+                # t: 선분 위에서의 비율 (0~1 사이면 선분 위, 아니면 선분 밖)
+                t = ((x - x1) * dx + (y - y1) * dy) / (dx**2 + dy**2)
+                t = max(0, min(1, t)) # 수선의 발을 선분 안쪽으로 제한
+                
                 closest_x = x1 + t * dx
                 closest_y = y1 + t * dy
                 dist = math.hypot(x - closest_x, y - closest_y)
             
-            min_dist = min(min_dist, dist)
+            # 최소 거리 갱신
+            if dist < min_dist:
+                min_dist = dist
+        
         cte = min_dist
         
         # Heading Error 계산

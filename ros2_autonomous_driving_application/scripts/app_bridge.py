@@ -44,6 +44,19 @@ class AppBridge(Node):
 
         self.get_logger().info('[AppBridge] App Bridge is ready to translate app commands.')
 
+        # 5. 스위치 비트와 명령 매핑 딕셔너리
+        self.sw_command_map = {
+                    "10000": "STOP",
+                    "01000": "KEY",
+                    "00100": "CAL",
+                    "00010": "ALIGN",
+                    "00001": "RUN"
+                }
+        
+        # 비디오/안전 비트 중복 로그 방지용 변수
+        self.last_video_bit = None
+        self.last_safe_bit = None
+
     # /robot_state 토픽을 수신하여 현재 상태를 업데이트하는 콜백 함수
     def robot_state_callback(self, msg):
         self.current_robot_state = msg.data
@@ -52,24 +65,17 @@ class AppBridge(Node):
     def sw_bits_callback(self, msg):
         cleaned_bits = msg.data.replace('"', '')
         
-        command_list = {
-            "10000": "STOP",
-            "01000": "KEY",
-            "00100": "CAL",
-            "00010": "ALIGN",
-            "00001": "RUN"
-        }
-        
-        if cleaned_bits in command_list:
-            command = command_list[cleaned_bits]
-            if command != self.last_mode_command: # 중복 발행 방지(sw_bits는 계속 들어옴)
+        # 미리 만들어둔 딕셔너리 사용
+        if cleaned_bits in self.sw_command_map:
+            command = self.sw_command_map[cleaned_bits]
+            if command != self.last_mode_command:
                 self.get_logger().info(f'[AppBridge] Received sw_bits "{cleaned_bits}", publishing command: "{command}"')
                 command_msg = String()
                 command_msg.data = command
-                self.state_command_pub.publish(command_msg) # /state_command로 발행
+                self.state_command_pub.publish(command_msg)
                 self.last_mode_command = command
         else:
-            self.get_logger().warn(f'[AppBridge] Received unknown sw_bits: "{cleaned_bits}"', throttle_duration_sec=5.0)
+            self.get_logger().warn(f'[AppBridge] Unknown sw_bits: "{cleaned_bits}"', throttle_duration_sec=5.0)
 
     # /app/key_bits 토픽을 수신하여 Twist 속도 명령으로 변환하는 콜백 함수
     def key_bits_callback(self, msg):
@@ -127,27 +133,41 @@ class AppBridge(Node):
             self.get_logger().info(f'[AppBridge] Speed set to {self.current_speed:.2f} m/s')
 
     def video_bit_callback(self, msg):
-        cleaned = msg.data.replace('"', '').strip()
-        if cleaned not in ("0", "1"):
-            self.get_logger().warn(f'invalid video_bit: {msg.data}')
+        cleaned_bits = msg.data.replace('"', '').strip()
+        if cleaned_bits not in ("0", "1"):
+            self.get_logger().warn(f'invalid video_bit: {msg.data}', throttle_duration_sec=5.0)
             return
+        
+        # 상태가 변했을 때만 로그 출력
+        if cleaned_bits != self.last_video_bit:
+            if cleaned_bits == "1":
+                self.get_logger().info(f'[AppBridge] Video ON')
+            else:
+                self.get_logger().info(f'[AppBridge] Video OFF')
+            self.last_video_bit = cleaned_bits
+            
         out = Int32()
-        out.data = int(cleaned)      # 0 또는 1
+        out.data = int(cleaned_bits)
         self.video_pub.publish(out)
 
     def safe_bit_callback(self, msg):
-        cleaned = msg.data.replace('"', '').strip()
+        cleaned_bits = msg.data.replace('"', '').strip()
 
-        if cleaned not in ("0", "1"):
-            self.get_logger().warn(f'invalid safe_bit: {msg.data}')
+        if cleaned_bits not in ("0", "1"):
+            self.get_logger().warn(f'invalid safe_bit: {msg.data}', throttle_duration_sec=5.0)
             return
 
-        # 1만 처리, 0은 무시
-        if cleaned == "1":
+        # 상태가 변했을 때만 로그 출력
+        if cleaned_bits != self.last_safe_bit:
+            if cleaned_bits == "1":
+                self.get_logger().info('[AppBridge] Safety ENABLED')
+            self.last_safe_bit = cleaned_bits
+
+        # 기존 로직 유지 (1일 때만 0 발행)
+        if cleaned_bits == "1":
             out = Int32()
             out.data = 0
             self.safety_pub.publish(out)
-            self.get_logger().info('[AppBridge] Safety DISABLED (0 received)')
 
 
 def main(args=None):
