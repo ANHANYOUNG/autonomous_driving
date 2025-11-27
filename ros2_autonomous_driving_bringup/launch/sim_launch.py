@@ -32,7 +32,7 @@ def generate_launch_description():
     motor_script_arg = DeclareLaunchArgument(
         'motor_script',
         default_value='motor_cmd_vel_sim_2.py',
-        description='Motor control script: motor_cmd_vel_trx_v2.py,motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py, motor_cmd_vel_sim_3.py, motor_cmd_vel_real_proportional.py, motor_cmd_vel_real_linear.py'
+        description='Motor control script: motor_cmd_vel_real.py,motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py, motor_cmd_vel_sim_3.py, motor_cmd_vel_real_proportional.py, motor_cmd_vel_real_linear.py'
     )
     
     # Lookahead Distance
@@ -241,7 +241,7 @@ def generate_launch_description():
         imu_offset_node,
         # uwb_publisher_node,
         # uwb_data_wifi_out,
-        # imu_node    
+        imu_node    
         # uwb_publisher_dummy_node,
         # TF 고정 변환
         # static_imu_tf,

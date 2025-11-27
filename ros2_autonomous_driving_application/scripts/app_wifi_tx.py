@@ -204,12 +204,12 @@ class AppWiFiTransmitter(Node):
                     self.uwb_json_data["tag_ori"] = round(yaw_deg, 2)
                     
                     # 디버깅 로그 (가끔씩만)
-                    if self.ekf_callback_count <= 100 or self.ekf_callback_count % 500 == 0:
-                        self.get_logger().info(
-                            f'[WIFI_TX] EKF data updated #{self.ekf_callback_count//50}: '
-                            f'Pos=({position_x:.2f}, {position_y:.2f}), '
-                            f'Vel={velocity_magnitude:.2f}, Yaw={yaw_deg:.2f}°'
-                        )
+                    # if self.ekf_callback_count <= 100 or self.ekf_callback_count % 500 == 0:
+                    #     self.get_logger().info(
+                    #         f'[WIFI_TX] EKF data updated #{self.ekf_callback_count//50}: '
+                    #         f'Pos=({position_x:.2f}, {position_y:.2f}), '
+                    #         f'Vel={velocity_magnitude:.2f}, Yaw={yaw_deg:.2f}°'
+                    #     )
             
         except Exception as e:
             self.get_logger().error(f'[WIFI_TX] Error processing EKF data: {e}')

@@ -31,8 +31,8 @@ def generate_launch_description():
     # 모터 제어 스크립트 선택
     motor_script_arg = DeclareLaunchArgument(
         'motor_script',
-        default_value='motor_cmd_vel_sim_2.py',
-        description='Motor control script: motor_cmd_vel_trx_v2.py,motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py, motor_cmd_vel_sim_3.py, motor_cmd_vel_real_proportional.py, motor_cmd_vel_real_linear.py'
+        default_value='motor_cmd_vel_real.py',
+        description='Motor control script: motor_cmd_vel_real.py,motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py, motor_cmd_vel_sim_3.py, motor_cmd_vel_real_proportional.py, motor_cmd_vel_real_linear.py'
     )
     
     # Lookahead Distance

@@ -43,10 +43,10 @@ install(PROGRAMS
   # motor
   scripts/motor_cmd_vel_trx.py
   scripts/motor_cmd_vel_sim.py
-  scripts/motor_cmd_vel_trx_v2.py
   scripts/motor_cmd_vel_sim_1.py
   scripts/motor_cmd_vel_sim_2.py
   scripts/motor_cmd_vel_sim_3.py
+  scripts/motor_cmd_vel_real.py
   scripts/motor_cmd_vel_real_proportional.py
   scripts/motor_cmd_vel_real_linear.py
   # state
