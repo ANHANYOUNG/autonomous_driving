@@ -46,6 +46,9 @@ class MotorCmdVelTrx(Node):
         
         self.state_sub = self.create_subscription(String, '/robot_state', self.robot_state_callback, 10)
         
+        # ========== Publishers ==========
+        self.motor_rpm_pub = self.create_publisher(Twist, '/motor_rpm', 10)
+        
         # === 3. 상태 변수들 [수정] ===
         self.current_robot_state = "STOP"  # 초기 상태를 "STOP"으로 변경
         self.motor_command = [0, 0]        # 현재 모터 지령값 (RPM)
@@ -70,6 +73,13 @@ class MotorCmdVelTrx(Node):
                     if len(data) == 4:
                         motor1_rpm, motor2_rpm = struct.unpack('<hh', data)
                         self.received_motor_data = [motor1_rpm, motor2_rpm]
+                        
+                        # 데이터 저장용 motor_rpm 퍼블리셔
+                        rpm_msg = Twist()
+                        rpm_msg.angular.x = float(motor1_rpm)  # Left RPM
+                        rpm_msg.angular.y = float(motor2_rpm)  # Right RPM
+                        self.motor_rpm_pub.publish(rpm_msg)
+                        
                         self.get_logger().info(
                             f'[MOTOR_CMD_VEL] Received: M1={motor1_rpm} rpm, M2={motor2_rpm} rpm',
                             throttle_duration_sec=1.0
