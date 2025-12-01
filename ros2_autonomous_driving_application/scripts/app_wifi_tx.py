@@ -21,11 +21,16 @@ class AppDataHandler(BaseHTTPRequestHandler):
         """GET 요청 처리"""
         if self.path == '/to_app':
             try:
-                # ROS 노드에서 최신 UWB 데이터 가져오기
+                # ROS 노드에서 최신 UWB 데이터 가져오기, CPU 과부하 방식
+                # if self.ros_node:
+                #     json_data = self.ros_node.get_uwb_json_data()
+                # else:
+                #     json_data = {"error": "ROS node not available"}
+                # CPU 적게 쓰는 방식
                 if self.ros_node:
-                    json_data = self.ros_node.get_uwb_json_data()
+                    json_str = self.ros_node.get_uwb_json_data()
                 else:
-                    json_data = {"error": "ROS node not available"}
+                    json_str = json.dumps({"error": "ROS node not available"})
                 
                 # 성공 응답
                 self.send_response(200)
@@ -34,7 +39,11 @@ class AppDataHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 
                 # JSON 데이터 전송
-                self.wfile.write(json.dumps(json_data).encode('utf-8'))
+                # 기존 방식
+                # self.wfile.write(json.dumps(json_data).encode('utf-8'))
+                
+                # CPU 적게 쓰는 방식
+                self.wfile.write(json_str.encode('utf-8'))
                 
             except Exception as e:
                 # 서버 에러
@@ -111,11 +120,11 @@ class AppWiFiTransmitter(Node):
         
         # HTTP 서버 시작
         self.start_http_server()
-        
-        self.get_logger().info(f'App WiFi Transmitter started on {self.host}:{self.port}')
-        self.get_logger().info('Endpoint: http://192.168.4.1:8888/to_app')
-        self.get_logger().info('Subscribed to /uwb_raw_data and /odometry/ekf_single')
-    
+
+        self.get_logger().info(f'[WIFI_TX] App WiFi Transmitter started on {self.host}:{self.port}')
+        self.get_logger().info('[WIFI_TX] Endpoint: http://192.168.4.1:8888/to_app')
+        self.get_logger().info('[WIFI_TX] Subscribed to /uwb_raw_data and /odometry/ekf_single')
+
     def start_http_server(self):
         """HTTP 서버를 별도 스레드에서 시작"""
         def handler_factory(*args, **kwargs):
@@ -135,28 +144,28 @@ class AppWiFiTransmitter(Node):
                     daemon=True
                 )
                 self.server_thread.start()
-                
-                self.get_logger().info(f'HTTP Server listening on {self.host}:{current_port}')
+
+                self.get_logger().info(f'[WIFI_TX] HTTP Server listening on {self.host}:{current_port}')
                 self.port = current_port  # 실제 사용하는 포트 업데이트
                 break
                 
             except OSError as e:
                 if e.errno == 98:  # Address already in use
-                    self.get_logger().warn(f'Port {current_port} in use, trying {current_port + 1}')
+                    self.get_logger().warn(f'[WIFI_TX] Port {current_port} in use, trying {current_port + 1}')
                     continue
                 else:
-                    self.get_logger().error(f'Failed to start HTTP server: {e}')
+                    self.get_logger().error(f'[WIFI_TX] Failed to start HTTP server: {e}')
                     break
         else:
-            self.get_logger().error(f'Could not find available port after {max_retries} attempts')
-    
+            self.get_logger().error(f'[WIFI_TX] Could not find available port after {max_retries} attempts')
+
     def serve_forever_with_shutdown(self):
         """서버 실행 (주기적으로 종료 확인)"""
         try:
             self.server.serve_forever()
         except Exception as e:
-            self.get_logger().error(f'HTTP server error: {e}')
-    
+            self.get_logger().error(f'[WIFI_TX] HTTP server error: {e}')
+
     def quaternion_to_yaw(self, x, y, z, w):
         """쿼터니언을 yaw 각도(degree)로 변환"""
         # yaw (z-axis rotation)
@@ -195,16 +204,16 @@ class AppWiFiTransmitter(Node):
                     self.uwb_json_data["tag_ori"] = round(yaw_deg, 2)
                     
                     # 디버깅 로그 (가끔씩만)
-                    if self.ekf_callback_count <= 100 or self.ekf_callback_count % 500 == 0:
-                        self.get_logger().info(
-                            f'EKF data updated #{self.ekf_callback_count//50}: '
-                            f'Pos=({position_x:.2f}, {position_y:.2f}), '
-                            f'Vel={velocity_magnitude:.2f}, Yaw={yaw_deg:.2f}°'
-                        )
+                    # if self.ekf_callback_count <= 100 or self.ekf_callback_count % 500 == 0:
+                    #     self.get_logger().info(
+                    #         f'[WIFI_TX] EKF data updated #{self.ekf_callback_count//50}: '
+                    #         f'Pos=({position_x:.2f}, {position_y:.2f}), '
+                    #         f'Vel={velocity_magnitude:.2f}, Yaw={yaw_deg:.2f}°'
+                    #     )
             
         except Exception as e:
-            self.get_logger().error(f'Error processing EKF data: {e}')
-    
+            self.get_logger().error(f'[WIFI_TX] Error processing EKF data: {e}')
+
     def uwb_data_callback(self, msg):
         """UWB 원시 데이터 수신 및 JSON 변환 (앵커 정보만)"""
         try:
@@ -226,7 +235,7 @@ class AppWiFiTransmitter(Node):
                     ]
                     
         except Exception as e:
-            self.get_logger().error(f'Error processing UWB data: {e}')
+            self.get_logger().error(f'[WIFI_TX] Error processing UWB data: {e}')
     
     def get_uwb_json_data(self):
         """앱 요청 시 최신 UWB JSON 데이터 반환"""
@@ -246,21 +255,27 @@ class AppWiFiTransmitter(Node):
                 if "No anchor data available" not in self.uwb_json_data["err_msg"]:
                     self.uwb_json_data["err_msg"].append("No anchor data available")
             
-            # 최신 데이터 반환 (깊은 복사)
-            return json.loads(json.dumps(self.uwb_json_data))
+            # # 최신 데이터 반환 (깊은 복사), 에러 방지용 but cpu 너무 많이 쓰는 중
+            # 1차 변환 딕셔너리 - 문자열 (json.dumps)
+            # 2차 변환 문자열 - 다시 딕셔너리 (json.loads)
+            # 3차 변환 딕셔너리 - 문자열로 압축 (do_GET 에서 다시 json.dumps)
+            # return json.loads(json.dumps(self.uwb_json_data))
+
+            # CPU 적게 쓰는 방식 - 문자열 바로 반환
+            return json.dumps(self.uwb_json_data)
     
     def destroy_node(self):
         """노드 종료 시 HTTP 서버 정리"""
-        self.get_logger().info('Shutting down App WiFi Transmitter...')
+        self.get_logger().info('[WIFI_TX] Shutting down App WiFi Transmitter...')
         
         if hasattr(self, 'server'):
             self.server.shutdown()
             self.server.server_close()
         
-        self.get_logger().info(f'Total requests served: {self.request_count}')
-        self.get_logger().info(f'Total UWB data received: {self.data_count}')
-        self.get_logger().info(f'Total EKF callbacks: {self.ekf_callback_count}')
-        
+        self.get_logger().info(f'[WIFI_TX] Total requests served: {self.request_count}')
+        self.get_logger().info(f'[WIFI_TX] Total UWB data received: {self.data_count}')
+        self.get_logger().info(f'[WIFI_TX] Total EKF callbacks: {self.ekf_callback_count}')
+
         super().destroy_node()
 
 

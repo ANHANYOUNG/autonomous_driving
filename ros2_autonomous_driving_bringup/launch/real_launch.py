@@ -18,17 +18,34 @@ def generate_launch_description():
     ekf_config = os.path.join(bringup_pkg_path, 'config', 'ekf.yaml')
 
     ### --- 1. use_sim_time 런치 인자 선언 --- ###
-    # 시뮬레이션 <-> 실제 로봇 전환 시 여기만 'true' 또는 'false'로 변경
     # 시뮬레이션: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=true
     # 실제 로봇: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=false
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
-        default_value='true',  # ★★★ 여기만 수정하세요 ★★★
+        default_value='false',  # ★★★ 여기만 수정 ★★★
         description='Use simulation (Gazebo) clock if true'
+    )
+    
+    # 실행 예시 ros2 launch ros2_autonomous_driving_bringup state_test.launch.py motor_script:=motor_cmd_vel_sim.py ld:=1.0
+
+    # 모터 제어 스크립트 선택
+    motor_script_arg = DeclareLaunchArgument(
+        'motor_script',
+        default_value='motor_cmd_vel_real.py',
+        description='Motor control script: motor_cmd_vel_real.py,motor_cmd_vel_sim.py, motor_cmd_vel_sim_1.py, motor_cmd_vel_sim_2.py, motor_cmd_vel_sim_3.py, motor_cmd_vel_real_proportional.py, motor_cmd_vel_real_linear.py'
+    )
+    
+    # Lookahead Distance
+    ld_arg = DeclareLaunchArgument(
+        'ld',
+        default_value='1.5',
+        description='Pure Pursuit lookahead distance (m)'
     )
 
     ### --- 2. 런치 인자 값을 변수로 가져오기 --- ###
     use_sim_time = LaunchConfiguration('use_sim_time')
+    motor_script = LaunchConfiguration('motor_script')
+    ld = LaunchConfiguration('ld')
 
 
     # 1. Twist Mux 실행
@@ -48,9 +65,7 @@ def generate_launch_description():
         output="screen",
         parameters=[
             ekf_config,
-            {'use_sim_time': use_sim_time}, # 'use_sim_time' 변수 사용
-            {'print_diagnostics': True},     # 추가!
-
+            {'use_sim_time': use_sim_time} # 'use_sim_time' 변수 사용
         ],
         remappings=[
             ('odometry/filtered', 'odometry/ekf_single')
@@ -86,9 +101,12 @@ def generate_launch_description():
     # 5. 자율주행 핵심 로직 (Pure Pursuit)
     pure_pursuit_node = Node(
         package='ros2_autonomous_driving_application',
-        executable='pure_pursuit_controller.py',
+        executable='ppc_real_2.py',
         name='pure_pursuit_controller',
-        parameters=[{'use_sim_time': use_sim_time}] # 'use_sim_time' 변수 사용
+        parameters=[
+            {'use_sim_time': use_sim_time},
+            {'lookahead_distance': ld}  #  Ld 런치 인자 주입
+        ]
     )
     
     # 6. Wifi 통신 노드들
@@ -119,11 +137,10 @@ def generate_launch_description():
     # # 7. 실제 센서 및 드라이버 노드들
     motor_cmd_vel_trx_node = Node(
         package='ros2_autonomous_driving_application',
-        executable='motor_cmd_vel_trx_v2.py',
+        executable=motor_script,  #  런치 인자로 스크립트 선택
         name='motor_cmd_vel_trx_node',
         output='screen',
-        parameters=[{'use_sim_time': use_sim_time}
-        ] # 'use_sim_time' 변수 사용
+        parameters=[{'use_sim_time': use_sim_time}]
     )
     # CAL 결과를 사용한 imu offset node
     imu_offset_node = Node(
@@ -140,15 +157,6 @@ def generate_launch_description():
         executable='uwb_publisher.py',
         name='uwb_publisher_node',
         output='screen'
-    )
-
-    uwb_data_wifi_out = Node(
-        package='ros2_autonomous_driving_application',
-        executable='uwb_data_wifi_out.py',
-        name='uwb_data_wifi_out',
-        output='screen',
-        parameters=[{'port': 8888},
-                    {'max_clients': 5},]  # 8888번 포트 사용
     )
 
     imu_node = Node(
@@ -174,29 +182,12 @@ def generate_launch_description():
         arguments=['0', '0', '0', '0', '0', '0', 'odom', 'chassis_link']
     )
 
-    uwb_publisher_dummy_node = Node(
-        package='ros2_autonomous_driving_application',
-        executable='uwb_publisher_dummy.py',
-        name='uwb_publisher_dummy_node',
-        output='screen',
-        parameters=[{'tag_x': 5.0},   # 태그 x 좌표
-                    {'tag_y': 10.0},  # 태그 y 좌표
-                    {'publish_rate': 1.0},]  # 발행 주기 (Hz)
-    )
-
-    # plot
-    plot_ppc_node = Node(
-        package = 'ros2_autonomous_driving_application',
-        executable = 'plot_ppc.py',
-        name = 'plot_ppc_node',
-        output = 'screen',
-        parameters = [{'use_sim_time': use_sim_time}] 
-    )
-
 
     return LaunchDescription([
         ### --- 4. 런치 인자를 실행 목록에 추가 --- ###
         use_sim_time_arg,
+        motor_script_arg,  #  추가
+        ld_arg,            #  추가
         
         # --- 노드 실행 목록 ---
         # 속도 선택
@@ -213,15 +204,11 @@ def generate_launch_description():
         # 주행 제어
         pure_pursuit_node,
         motor_cmd_vel_trx_node,
-        # # 센서
+        # 센서
         imu_offset_node,
         uwb_publisher_node,
-        # uwb_data_wifi_out,
         imu_node,
-        # uwb_publisher_dummy_node,
         # TF 고정 변환
         static_imu_tf,
-        static_odom_to_chassis,
-        # plot
-        plot_ppc_node,
+        static_odom_to_chassis
     ])

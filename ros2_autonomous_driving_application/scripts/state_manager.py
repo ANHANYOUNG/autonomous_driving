@@ -7,19 +7,14 @@ from geometry_msgs.msg import Twist
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
 class StateManager(Node):
-    """
-    - 사용자 명령, 수동 개입, 자율주행 완료 신호를 감지합니다.
-    - 시스템의 마스터 상태(STOP, RUN, KEY, ALIGN, CALIBRATION)를 결정합니다.
-    - 결정된 상태를 '/robot_state' 토픽으로 발행합니다.
-    """
     def __init__(self):
         super().__init__('state_manager_node')
-        self.get_logger().info('State Manager (Brain) has been started.')
+        self.get_logger().info('[STATE_MANAGER] State Manager (Brain) has been started.')
 
         # 1. 파라미터 및 내부 상태 변수
         self.declare_parameter('initial_state', 'STOP')
         self.state = self.get_parameter('initial_state').get_parameter_value().string_value
-
+        self.last_logged_state = None
         # 2. 발행 (Publication)
         self.state_pub = self.create_publisher(String, '/robot_state', 10)
         
@@ -28,17 +23,17 @@ class StateManager(Node):
 
 
         # 4. 초기 상태 발행 및 주기적 발행 타이머
-        self.get_logger().info(f'Initial state set to: {self.state}')
+        self.get_logger().info(f'[STATE_MANAGER] Initial state set to: {self.state}')
         self._update_state(self.state, force_publish=True)
         self.publish_timer = self.create_timer(1.0, self.publish_state_loop)
 
     # 상태 업데이트
     def _update_state(self, new_state, force_publish=False):
-        """ 상태를 안전하게 업데이트하고 전파합니다. """
+        """ 상태를 안전하게 업데이트하고 전파"""
         if new_state == self.state and not force_publish:
             return
 
-        self.get_logger().info(f'State transition: {self.state} -> {new_state}')
+        self.get_logger().info(f'[STATE_MANAGER] State transition: {self.state} -> {new_state}')
         self.state = new_state
         
         state_msg = String()
@@ -68,14 +63,12 @@ class StateManager(Node):
 
     # robot_state 토픽을 주기적으로 발행
     def publish_state_loop(self):
-        """
-        1초마다 현재 상태를 '/robot_state' 토픽으로 계속 발행합니다.
-        이를 통해 네트워크 지연이나 노드 재시작 시에도 상태 동기화를 보장합니다.
-        """
         state_msg = String()
         state_msg.data = self.state
         self.state_pub.publish(state_msg)
-        self.get_logger().info(f'Publishing state: {self.state}')
+        if self.state != self.last_logged_state:
+            self.get_logger().info(f'[STATE_MANAGER] Publishing state: {self.state}')
+            self.last_logged_state = self.state
 
 
 def main(args=None):

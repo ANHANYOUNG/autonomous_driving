@@ -13,7 +13,7 @@ class MotorCmdVelTrx(Node):
         super().__init__('motor_cmd_vel_trx')
         
         # 시리얼 포트 설정
-        self.declare_parameter('port', '/dev/usb-right-top')
+        self.declare_parameter('port', '/dev/usb-left-top')
         self.declare_parameter('baudrate', 115200)
         
         port = self.get_parameter('port').get_parameter_value().string_value

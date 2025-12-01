@@ -10,6 +10,10 @@ twist_mux:
         topic   : /cmd_vel
         timeout : 0.5
         priority: 40
+      motor_sim:
+        topic   : /cmd_vel_sim
+        timeout : 0.5
+        priority: 35
       calibration:
         topic   : /cmd_vel_cal
         timeout : 0.5

@@ -39,8 +39,11 @@ class AppDataHandler(BaseHTTPRequestHandler):
                 self.send_header('Access-Control-Allow-Origin', '*')  # CORS 허용
                 self.end_headers()
                 
-                response = {"status": "success", "message": "Data received"}
-                self.wfile.write(json.dumps(response).encode('utf-8'))
+                # response = {"status": "success", "message": "Data received"}
+                # self.wfile.write(json.dumps(response).encode('utf-8'))
+
+                # 매번 json.dumps 하지 않고 고정된 바이트 문자열 전송 (CPU 절약)
+                self.wfile.write(b'{"status":"ok"}')
                 
             except json.JSONDecodeError as e:
                 # JSON 파싱 에러
@@ -74,7 +77,10 @@ class AppWiFiReceiver(Node):
         # ROS2 퍼블리셔 생성
         self.sw_bits_pub = self.create_publisher(String, '/app/sw_bits', 10)
         self.key_bits_pub = self.create_publisher(String, '/app/key_bits', 10)
+        self.speed_bits_pub = self.create_publisher(String, '/app/speed_bits', 10)
         self.raw_app_data_pub = self.create_publisher(String, '/app/raw_data', 10)
+        self.video_bit_pub = self.create_publisher(String, '/app/video_bit', 10)
+        self.safe_bit_pub = self.create_publisher(String, '/app/safe_bit', 10)
         
         # HTTP 서버 설정
         self.declare_parameter('port', 8889)
@@ -90,8 +96,8 @@ class AppWiFiReceiver(Node):
         # HTTP 서버 시작
         self.start_http_server()
         
-        self.get_logger().info(f'App WiFi Receiver started on {self.host}:{self.port}')
-        self.get_logger().info('Endpoint: http://192.168.4.1:8889/to_rasp')
+        self.get_logger().info(f'[WIFI_RX] App WiFi Receiver started on {self.host}:{self.port}')
+        self.get_logger().info('[WIFI_RX] ip: http://192.168.4.1:8889/to_rasp')
     
     def start_http_server(self):
         """HTTP 서버를 별도 스레드에서 시작"""
@@ -104,12 +110,12 @@ class AppWiFiReceiver(Node):
             # 서버를 별도 스레드에서 실행
             self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             self.server_thread.start()
-            
-            self.get_logger().info(f'HTTP Server listening on {self.host}:{self.port}')
-            
+
+            self.get_logger().info(f'[WIFI_RX] HTTP Server listening on {self.host}:{self.port}')
+
         except Exception as e:
-            self.get_logger().error(f'Failed to start HTTP server: {e}')
-    
+            self.get_logger().error(f'[WIFI_RX] Failed to start HTTP server: {e}')
+
     def process_app_data(self, json_data):
         """앱에서 받은 JSON 데이터를 ROS2 토픽으로 발행"""
         try:
@@ -118,43 +124,64 @@ class AppWiFiReceiver(Node):
             current_time = self.get_clock().now()
             
             # 전체 JSON 데이터를 원시 데이터로 발행
-            raw_msg = String()
-            raw_msg.data = json.dumps(json_data)
-            self.raw_app_data_pub.publish(raw_msg)
+            # raw_msg = String()
+            # raw_msg.data = json.dumps(json_data)
+            # self.raw_app_data_pub.publish(raw_msg)
             
             # sw_bits 데이터 발행
             if 'sw_bits' in json_data:
                 sw_msg = String()
                 sw_msg.data = str(json_data['sw_bits'])
                 self.sw_bits_pub.publish(sw_msg)
-                self.get_logger().debug(f'Published sw_bits: {json_data["sw_bits"]}')
+                # self.get_logger().debug(f'[WIFI_RX] Published sw_bits: {json_data["sw_bits"]}')
             
             # key_bits 데이터 발행
             if 'key_bits' in json_data:
                 key_msg = String()
                 key_msg.data = str(json_data['key_bits'])
                 self.key_bits_pub.publish(key_msg)
-                self.get_logger().debug(f'Published key_bits: {json_data["key_bits"]}')
-            
+                # self.get_logger().debug(f'[WIFI_RX] Published key_bits: {json_data["key_bits"]}')
+
+            # speed_bits 속도 조절 데이터 발행
+            if 'speed_bits' in json_data:
+                speed_msg = String()
+                speed_msg.data = str(json_data['speed_bits'])
+                self.speed_bits_pub.publish(speed_msg)
+                # self.get_logger().debug(f'[WIFI_RX] Received speed_bits: {json_data["speed_bits"]}')
+
+            # video_bit = 0 or 1
+            if 'video_bit' in json_data:
+                video_msg = String()
+                video_msg.data = str(json_data['video_bit'])
+                self.video_bit_pub.publish(video_msg)
+                # self.get_logger().debug(f'[WIFI_RX] Received video_bit: {json_data["video_bit"]}')
+
+            # safe_bit = 0 or 1
+            if 'safe_bit' in json_data:
+                safe_msg = String()
+                safe_msg.data = str(json_data['safe_bit'])
+                self.safe_bit_pub.publish(safe_msg)
+                # self.get_logger().debug(f'[WIFI_RX] Received safe_bit: {json_data["safe_bit"]}')
+
             # 통계 로그 (10개마다 출력)
-            if self.data_count % 10 == 0:
-                self.get_logger().info(f'Received {self.data_count} app data packets')
-            
+            # if self.data_count % 10 == 0:
+            #     self.get_logger().info(f'[WIFI_RX] Received {self.data_count} app data packets')
+
             # 데이터 수신 간격 계산 (처음이 아닌 경우)
-            if self.last_data_time:
-                interval = (current_time.nanoseconds - self.last_data_time.nanoseconds) / 1e9
-                if interval > 1.0:  # 1초 이상 간격이면 로그
-                    self.get_logger().warn(f'Large data interval: {interval:.2f}s')
-            
+            # if self.last_data_time:
+            #     interval = (current_time.nanoseconds - self.last_data_time.nanoseconds) / 1e9
+            #     if interval > 1.0:  # 1초 이상 간격이면 로그
+            #         self.get_logger().warn(f'[WIFI_RX] Large data interval: {interval:.2f}s')
+
             self.last_data_time = current_time
             
         except Exception as e:
-            self.get_logger().error(f'Error processing app data: {e}')
-    
+            self.get_logger().error(f'[WIFI_RX] Error processing app data: {e}')
+
     def destroy_node(self):
         """노드 종료 시 HTTP 서버 정리"""
-        self.get_logger().info('Shutting down App WiFi Receiver...')
-        
+        self.get_logger().info('[WIFI_RX] Shutting down App WiFi Receiver...')
+    
         if hasattr(self, 'server'):
             self.server.shutdown()
             self.server.server_close()
