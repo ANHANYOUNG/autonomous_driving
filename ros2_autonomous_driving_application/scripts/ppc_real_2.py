@@ -37,9 +37,9 @@ class PurePursuitNode(Node):
         self.command_pub = self.create_publisher(String, '/state_command', 10)
 
         # Subscribers
-        self.dt_gps = 0.1
-        self.dt_imu = 0.01
-        self.imu_sub = self.create_subscription(Imu, '/imu_cal', self.imu_callback, 1)
+        # self.dt_gps = 0.1
+        # self.dt_imu = 0.01
+        # self.imu_sub = self.create_subscription(Imu, '/imu_cal', self.imu_callback, 1)
 
         self.dt_timer = 0.25
         self.timer = self.create_timer(self.dt_timer, self.timer_callback)
@@ -62,8 +62,10 @@ class PurePursuitNode(Node):
             # (9, -0.75), (-9, -0.75),
             # (-9, -2.25), (9, -2.25),
             # (9, -3.75), (-9, -3.75)
-            (-9,9), (-5,9),
-            (-5,7), (-8,7)
+            (3.0, 6.0), (3.0, 16.0),
+            (4.5 ,16.0), (4.5, 6.0),
+            (6.0, 6.0), (6.0, 16.0),
+            (7.5, 16.0), (7.5, 6.0)
             # (-1,5), (-9,5),
             # (-9,1), (-1,1)
         ]
@@ -154,10 +156,6 @@ class PurePursuitNode(Node):
             self.command_pub.publish(String(data="STOP"))
             return False
         
-        # EKF 위치 정보가 없으면 종료
-        if self.global_x is None or self.global_y is None or self.global_yaw is None:
-            return False
-        
         return True
     
     def check_arrival(self):
@@ -212,7 +210,7 @@ class PurePursuitNode(Node):
         dist_to_target = np.hypot(target_wp[0] - self.global_x, target_wp[1] - self.global_y)
         
         # 목표 waypoint에 충분히 가까우면 회전 준비
-        if dist_to_target < self.lookahead_distance * 0.5:
+        if dist_to_target < self.lookahead_distance * 0.2:
             self.rotate_flag = 1
     
     def intersection_point(self, p1, p2, robot_x, robot_y, ld):
@@ -318,10 +316,10 @@ class PurePursuitNode(Node):
         # 속도 명령 생성
         twist = Twist()
         if self.rotate_flag == 1:
-            twist.linear.x = 0.1
+            twist.linear.x = 0.15
             twist.angular.z = twist.linear.x * curvature
         else:
-            twist.linear.x = 0.3
+            twist.linear.x = 0.4
             twist.angular.z = twist.linear.x * curvature
         
         # plot용으로 lookahead_point 저장

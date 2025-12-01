@@ -16,7 +16,7 @@ class MotorCmdVelRealProportional(Node):
         super().__init__('motor_cmd_vel_real_proportional')
         
         # ========== Serial Port Parameters ==========
-        self.declare_parameter('port', '/dev/usb-right-top')
+        self.declare_parameter('port', '/dev/usb-left-top')
         self.declare_parameter('baudrate', 115200)
         port = self.get_parameter('port').get_parameter_value().string_value
         baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value

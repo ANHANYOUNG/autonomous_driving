@@ -44,7 +44,7 @@ class PurePursuitNode(Node):
         # Subscribers
         self.dt_gps = 0.1
         self.dt_imu = 0.01
-        self.imu_sub = self.create_subscription(Imu, '/imu_cal', self.imu_callback, 1)
+        # self.imu_sub = self.create_subscription(Imu, '/imu_cal', self.imu_callback, 1)
 
         self.dt_timer = 0.25
         self.timer = self.create_timer(self.dt_timer, self.timer_callback)
@@ -67,9 +67,8 @@ class PurePursuitNode(Node):
             # (9, -0.75), (-9, -0.75),
             # (-9, -2.25), (9, -2.25),
             # (9, -3.75), (-9, -3.75)
-            (-9,9), (-3,9),
-            (-3,7)
-            # (-1,5), (-9,5),
+            (6.0, 6.0), (6.0, 25.0),
+            (1.0 ,25.0), (1.0, 6.0)
             # (-9,1), (-1,1)
         ]
         

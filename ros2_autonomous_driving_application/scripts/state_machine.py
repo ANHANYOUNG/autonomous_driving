@@ -82,8 +82,8 @@ class StateMachineExecutor(Node):
         self.cal_total_paused_duration = 0.0  # 누적 일시정지 시간 (초)
         
         # CAL Parameters # TODO UWB raw data 5Hz 감안해서 시간 설정
-        self.forward_time = 5.0
-        self.backward_time = 5.0
+        self.forward_time = 10.0
+        self.backward_time = 10.0
         self.forward_speed = 0.30
         self.backward_speed = -0.30
         self.num_repetitions = 3  # ★ 전후진 반복 횟수 (변경 가능)
@@ -111,8 +111,8 @@ class StateMachineExecutor(Node):
         self.start_pos_for_dot_product = None
 
         # ALIGN Parameters
-        self.align_target_pos = (-9.0, 9.0) # (x, y)
-        self.align_target_yaw = 0.0
+        self.align_target_pos = (3.0, 6.0) # (x, y)
+        self.align_target_yaw = math.pi * 0.5
         self.align_linear_speed = 0.3
         self.align_angular_speed = 0.2
         self.align_yaw_threshold = 0.01 # 약 0.57도

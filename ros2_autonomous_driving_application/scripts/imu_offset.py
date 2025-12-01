@@ -34,7 +34,7 @@ class ImuOffsetNode(Node):
         self.enable = bool(self.get_parameter('enable').value)
 
         # 입력/출력
-        self.sub_imu = self.create_subscription(Imu, '/imu', self.imu_cb, 50) # 가제보: /imu, 현실: /imu/data
+        self.sub_imu = self.create_subscription(Imu, '/imu_data', self.imu_cb, 50) # 가제보: /imu, 현실: /imu/data
         self.pub_imu = self.create_publisher(Imu, '/imu_cal', 50)
 
         # 오프셋 실시간 갱신 채널

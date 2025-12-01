@@ -18,9 +18,9 @@ twist_mux:
         topic   : /cmd_vel_cal
         timeout : 0.5
         priority: 30
-      # pure_pursuit:
-      #   topic   : /cmd_vel_ppc
-      #   timeout : 0.5
-      #   priority: 20
+      pure_pursuit:
+        topic   : /cmd_vel_ppc
+        timeout : 0.5
+        priority: 20
     output_topic: /cmd_vel_out 
 

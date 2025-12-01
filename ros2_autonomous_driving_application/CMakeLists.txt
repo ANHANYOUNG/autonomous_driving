@@ -36,6 +36,7 @@ install(PROGRAMS
   scripts/ppc.py
   scripts/ppc_2.py
   scripts/ppc_real.py
+  scripts/ppc_real_2.py
   # wifi
   scripts/app_wifi_rx.py
   scripts/app_wifi_tx.py
