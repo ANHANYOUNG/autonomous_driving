@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""각속도 우선 - 폐지 """
+"""Motor clipping control, angular velocity priority, Sim"""
 
 import rclpy
 from rclpy.node import Node
@@ -10,7 +10,7 @@ class MotorCmdVelSim2(Node):
     def __init__(self):
         super().__init__('motor_cmd_vel_sim_2')
         
-        # ========== Parameters ==========
+        # Parameters
         self.declare_parameter('wheel_radius', 0.1)
         self.declare_parameter('wheel_base', 1.5)
         self.declare_parameter('gear_ratio', 60.0)
@@ -21,25 +21,21 @@ class MotorCmdVelSim2(Node):
         self.gear_ratio = self.get_parameter('gear_ratio').get_parameter_value().double_value
         self.max_motor_rpm = self.get_parameter('max_motor_rpm').get_parameter_value().double_value
         
-        # ========== Subscribers & Publishers ==========
-        self.cmd_vel_sub = self.create_subscription(
-            Twist,
-            '/cmd_vel_ppc',
-            self.cmd_vel_callback,
-            10
-        )
-        
+        # Subscriptions
+        self.cmd_vel_sub = self.create_subscription(Twist,'/cmd_vel_ppc',self.cmd_vel_callback,10)
+
+        # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel_sim', 10)
         
         self.wheel_circumference = 2.0 * math.pi * self.wheel_radius
 
-        # ========== Max linear vel, angular vel ==========
+        # Max linear vel, angular vel
         self.max_linear_velocity = (self.max_motor_rpm * self.wheel_circumference) / (60.0 * self.gear_ratio)
 
         max_wheel_velocity = self.max_linear_velocity
         self.max_angular_velocity = (2.0 * max_wheel_velocity) / self.wheel_base
         
-        # 이전 명령 값 저장 (변화 감지용)
+        # Previous command for change detection
         self.prev_v_final = None
         self.prev_w_final = None
         
@@ -61,7 +57,7 @@ class MotorCmdVelSim2(Node):
             self.get_logger().error('[MOTOR_SIM_2] Wheel circumference is zero')
             return
 
-        # ========== Angular Velocity Clipping ==========
+        # Angular Velocity Clipping
         if abs(w_cmd) > self.max_angular_velocity:
             w_final = math.copysign(self.max_angular_velocity, w_cmd)
             self.get_logger().warn(
@@ -73,12 +69,12 @@ class MotorCmdVelSim2(Node):
         else:
             w_final = w_cmd
 
-        # ========== Linear Velocity Clipping ==========
+        # Linear Velocity Clipping
 
-        # w_final 실행에 필요한 바퀴 속도 계산
+        # Calculate Wheel velocity required for w_final
         wheel_velocity_for_w = abs(w_final * self.wheel_base * 0.5)
         
-        # 남은 RPM으로 허용 가능한 최대 선속도 계산
+        # Calculate max allowed linear velocity with remaining RPM
         max_v_allowed = self.max_linear_velocity - wheel_velocity_for_w
         
         if max_v_allowed < 0:
@@ -87,7 +83,7 @@ class MotorCmdVelSim2(Node):
         if abs(v_cmd) > max_v_allowed:
             v_final = math.copysign(max_v_allowed, v_cmd)
             
-            # RPM 계산 (경고용)
+            # RPM calculation (for warning)
             v_left_temp = v_final - (w_final * self.wheel_base * 0.5)
             v_right_temp = v_final + (w_final * self.wheel_base * 0.5)
             rpm_left_temp = (v_left_temp * 60.0 * self.gear_ratio) / self.wheel_circumference
@@ -104,16 +100,16 @@ class MotorCmdVelSim2(Node):
         else:
             v_final = v_cmd
 
-        # ========== Final Verification and Publish ==========
-        # 최종 바퀴 속도 계산
+        # Final Verification and Publish
+        # Calculate final wheel velocities
         v_left = v_final - (w_final * self.wheel_base * 0.5)
         v_right = v_final + (w_final * self.wheel_base * 0.5)
         
-        # RPM 변환
+        # Convert to RPM
         rpm_left = (v_left * 60.0 * self.gear_ratio) / self.wheel_circumference
         rpm_right = (v_right * 60.0 * self.gear_ratio) / self.wheel_circumference
         
-        # 최종 안전 검증 (이론적으로는 불필요 디버깅용)
+        # Final safety check (theoretically unnecessary, for debugging)
         if abs(rpm_left) > self.max_motor_rpm or abs(rpm_right) > self.max_motor_rpm:
             self.get_logger().error(
                 f'[MOTOR_SIM_2] RPM EXCEEDED (LOGIC ERROR)\n'
@@ -122,21 +118,21 @@ class MotorCmdVelSim2(Node):
                 f'  v_final={v_final:.3f}, w_final={w_final:.3f}\n'
                 f'  Emergency Stop Activated',
             )
-            # 긴급 정지
+            # Emergency Stop
             v_final = 0.0
             w_final = 0.0
             rpm_left = 0.0
             rpm_right = 0.0
         
-        # Twist 발행
+        # Publish Twist
         output_twist = Twist()
         output_twist.linear.x = v_final
         output_twist.angular.z = w_final
         self.cmd_vel_pub.publish(output_twist)
         
-        # 값이 변했을 때만 로그 출력
+        # Log only when values change
         if self.prev_v_final != v_final or self.prev_w_final != w_final:
-            # 입력 대비 출력 로그
+            # Input vs Output log
             v_left_cmd = v_cmd - (w_cmd * self.wheel_base * 0.5)
             v_right_cmd = v_cmd + (w_cmd * self.wheel_base * 0.5)
             rpm_left_cmd = (v_left_cmd * 60.0 * self.gear_ratio) / self.wheel_circumference

@@ -11,24 +11,27 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
 
-    # 설정 파일들의 경로를 가져옵니다.
+    # Bring file paths
     bringup_pkg_path = get_package_share_directory('ros2_autonomous_driving_bringup')
     twist_mux_config = os.path.join(bringup_pkg_path, 'config', 'twist_mux.yaml')
     path_config = os.path.join(bringup_pkg_path, 'config', 'path.yaml')
     ekf_config = os.path.join(bringup_pkg_path, 'config', 'ekf.yaml')
 
-    ### --- 1. use_sim_time 런치 인자 선언 --- ###
-    # 시뮬레이션: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=true
-    # 실제 로봇: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=false
+    # use_sim_time launch argument declaration
+
+    # execution example
+    # sim: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=true
+    # real: ros2 launch ros2_autonomous_driving_bringup state_test.launch.py use_sim_time:=false
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
-        default_value='false',  # ★★★ 여기만 수정 ★★★
+        default_value='false',
         description='Use simulation (Gazebo) clock if true'
     )
     
-    # 실행 예시 ros2 launch ros2_autonomous_driving_bringup state_test.launch.py motor_script:=motor_cmd_vel_sim.py ld:=1.0
+    # execution example:
+    # ros2 launch ros2_autonomous_driving_bringup state_test.launch.py motor_script:=motor_cmd_vel_sim.py ld:=1.0
 
-    # 모터 제어 스크립트 선택
+    # Motor control script selection
     motor_script_arg = DeclareLaunchArgument(
         'motor_script',
         default_value='motor_cmd_vel_real.py',
@@ -42,22 +45,21 @@ def generate_launch_description():
         description='Pure Pursuit lookahead distance (m)'
     )
 
-    ### --- 2. 런치 인자 값을 변수로 가져오기 --- ###
+    # Get launch argument values as variables
     use_sim_time = LaunchConfiguration('use_sim_time')
     motor_script = LaunchConfiguration('motor_script')
     ld = LaunchConfiguration('ld')
 
 
-    # 1. Twist Mux 실행
+    # Twist Mux
     twist_mux_node = Node(
         package='twist_mux',
         executable='twist_mux',
         name='twist_mux',
-        # 'use_sim_time' 변수를 사용하도록 수정
         parameters=[twist_mux_config, {'use_sim_time': use_sim_time}], 
     )
 
-    # 2. Robot Localization (EKF) 실행
+    # EKF
     ekf_single_node = Node(
         package="robot_localization",
         executable="ekf_node",
@@ -65,51 +67,52 @@ def generate_launch_description():
         output="screen",
         parameters=[
             ekf_config,
-            {'use_sim_time': use_sim_time} # 'use_sim_time' 변수 사용
+            {'use_sim_time': use_sim_time}
         ],
         remappings=[
             ('odometry/filtered', 'odometry/ekf_single')
         ]
     )
 
-    # 3. 상태 관리 및 실행 노드들
+    # State Manager
     state_manager_node = Node(
         package='ros2_autonomous_driving_application',
         executable='state_manager.py',
         name='state_manager',
-        parameters=[{'use_sim_time': use_sim_time}] # 'use_sim_time' 변수 사용
+        parameters=[{'use_sim_time': use_sim_time}]
     )
     
+    # State Machine
     state_machine_node = Node(
         package='ros2_autonomous_driving_application',
         executable='state_machine.py',
         name='state_machine_executor',
         parameters=[
             path_config,
-            {'use_sim_time': use_sim_time} # 'use_sim_time' 변수 사용
+            {'use_sim_time': use_sim_time}
         ]
     )
 
-    # 4. 앱 브릿지 노드
+    # App Bridge
     app_bridge_node = Node(
         package='ros2_autonomous_driving_application',
         executable='app_bridge.py',
         name='app_bridge',
-        parameters=[{'use_sim_time': use_sim_time}] # 'use_sim_time' 변수 사용
+        parameters=[{'use_sim_time': use_sim_time}]
     )
 
-    # 5. 자율주행 핵심 로직 (Pure Pursuit)
+    # ppc
     pure_pursuit_node = Node(
         package='ros2_autonomous_driving_application',
-        executable='ppc_real_2.py',
+        executable='ppc_real.py',
         name='pure_pursuit_controller',
         parameters=[
             {'use_sim_time': use_sim_time},
-            {'lookahead_distance': ld}  #  Ld 런치 인자 주입
+            {'lookahead_distance': ld}
         ]
     )
-    
-    # 6. Wifi 통신 노드들
+
+    # Wifi RX/TX
     app_wifi_rx_node = Node(
         package='ros2_autonomous_driving_application',
         executable='app_wifi_rx.py',
@@ -118,7 +121,7 @@ def generate_launch_description():
         parameters=[
             {'port': 8889},
             {'host': '0.0.0.0'},
-            {'use_sim_time': use_sim_time} # 'use_sim_time' 변수 사용
+            {'use_sim_time': use_sim_time}
         ]
     )
 
@@ -130,11 +133,11 @@ def generate_launch_description():
         parameters=[
             {'port': 8888},
             {'host': '0.0.0.0'},
-            {'use_sim_time': use_sim_time} # 'use_sim_time' 변수 사용
+            {'use_sim_time': use_sim_time}
         ]
     )
 
-    # # 7. 실제 센서 및 드라이버 노드들
+    # Motor Drivers
     motor_cmd_vel_trx_node = Node(
         package='ros2_autonomous_driving_application',
         executable=motor_script,  #  런치 인자로 스크립트 선택
@@ -142,14 +145,23 @@ def generate_launch_description():
         output='screen',
         parameters=[{'use_sim_time': use_sim_time}]
     )
-    # CAL 결과를 사용한 imu offset node
+
+    # Sensors
+    imu_node = Node(
+        package='ros2_autonomous_driving_application',
+        executable='imu.py',
+        name='wt901c_imu_node',
+        output='screen'
+    )
+
+    # imu_offset after CAL
     imu_offset_node = Node(
         package='ros2_autonomous_driving_application',
         executable='imu_offset.py',
         name='imu_offset_node',
         output='screen',
         parameters=[{'use_sim_time': use_sim_time}
-        ] # 'use_sim_time' 변수 사용
+        ]
     )
 
     uwb_publisher_node = Node(
@@ -159,13 +171,7 @@ def generate_launch_description():
         output='screen'
     )
 
-    imu_node = Node(
-        package='ros2_autonomous_driving_application',
-        executable='imu.py',
-        name='wt901c_imu_node',
-        output='screen'
-    )
-
+    # tf static transform: imu_link to chassis_link
     static_imu_tf = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
@@ -174,7 +180,7 @@ def generate_launch_description():
         output="screen",
     )
 
-    # odom -> chassis_link (고정 좌표 변환), 에러로 인해 추가함.
+    # tf static transform: odom to chassis_link
     static_odom_to_chassis = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -184,31 +190,36 @@ def generate_launch_description():
 
 
     return LaunchDescription([
-        ### --- 4. 런치 인자를 실행 목록에 추가 --- ###
+        # Add launch arguments to the execution list
         use_sim_time_arg,
-        motor_script_arg,  #  추가
-        ld_arg,            #  추가
+        motor_script_arg,
+        ld_arg,
         
-        # --- 노드 실행 목록 ---
-        # 속도 선택
+        # cmd_vel selector
         twist_mux_node,
-        # 칼만 필터
+
+        # Kalman filter
         ekf_single_node,
-        # 상태 머신
+
+        # State machine
         state_manager_node,
         state_machine_node,
-        # 어플 연동
+
+        # App
         app_bridge_node,
         app_wifi_rx_node,
         app_wifi_tx_node,
-        # 주행 제어
+
+        # Driving control
         pure_pursuit_node,
         motor_cmd_vel_trx_node,
-        # 센서
+
+        # Sensors
         imu_offset_node,
         uwb_publisher_node,
         imu_node,
-        # TF 고정 변환
+   
+        # TF static transform
         static_imu_tf,
         static_odom_to_chassis
     ])

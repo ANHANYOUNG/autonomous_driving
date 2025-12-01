@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Only Clipping"""
+"""No motor clipping control, Sim"""
 
 import rclpy
 from rclpy.node import Node
@@ -10,7 +10,7 @@ class MotorCmdVelSim(Node):
     def __init__(self):
         super().__init__('motor_cmd_vel_sim')
         
-        # ========== Parameters ==========
+        # Parameters
         self.declare_parameter('wheel_radius', 0.1)     # 바퀴(스프로킷) 반경 [m]
         self.declare_parameter('wheel_base', 1.5)       # 양 궤도 간격 [m]
         self.declare_parameter('gear_ratio', 60.0)      # 기어비
@@ -21,21 +21,16 @@ class MotorCmdVelSim(Node):
         self.gear_ratio = self.get_parameter('gear_ratio').get_parameter_value().double_value
         self.max_motor_rpm = self.get_parameter('max_motor_rpm').get_parameter_value().double_value
         
-        # ========== Subscribers & Publishers ==========
-        self.cmd_vel_sub = self.create_subscription(
-            Twist,
-            '/cmd_vel_ppc',
-            self.cmd_vel_callback,
-            10
-        )
+        # Subscription  
+        self.cmd_vel_sub = self.create_subscription(Twist,'/cmd_vel_ppc',self.cmd_vel_callback,10)
         
-        # 클리핑된 실제 명령 (Gazebo용)
+        # Publisher
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel_sim', 10)
         
-        # 바퀴 둘레
+        # Wheel circumference
         self.wheel_circumference = 2.0 * math.pi * self.wheel_radius
         
-        # 이전 명령 값 저장 (변화 감지용)
+        # Previous command values (for change detection)
         self.prev_v_actual = None
         self.prev_w_actual = None
         
@@ -50,15 +45,15 @@ class MotorCmdVelSim(Node):
         )
     
     def cmd_vel_callback(self, msg: Twist):
-        # ========== Twist → 목표 RPM ==========
+        # Twist → Target RPM 
         v = msg.linear.x   # [m/s]
         w = msg.angular.z  # [rad/s]
         
-        # 차동 구동 모델: 좌우 바퀴 속도 계산
+        # Differential drive model: calculate left and right wheel speeds
         v_left_ms = v - (w * self.wheel_base * 0.5)
         v_right_ms = v + (w * self.wheel_base * 0.5)
         
-        # 바퀴 속도 → 모터 RPM
+        # Wheel speed → Motor RPM
         if self.wheel_circumference == 0:
             self.get_logger().error('[MOTOR_SIM] Wheel circumference is zero!')
             return
@@ -66,11 +61,11 @@ class MotorCmdVelSim(Node):
         target_rpm_left = (v_left_ms * 60.0 * self.gear_ratio) / self.wheel_circumference
         target_rpm_right = (v_right_ms * 60.0 * self.gear_ratio) / self.wheel_circumference
         
-        # ========== RPM 클리핑 (±2500) ==========
+        # RPM Clipping
         clipped_rpm_left = max(-self.max_motor_rpm, min(self.max_motor_rpm, target_rpm_left))
         clipped_rpm_right = max(-self.max_motor_rpm, min(self.max_motor_rpm, target_rpm_right))
         
-        # 클리핑 발생 여부 확인 (디버깅용)
+        # Check if clipping occurred (for debugging)
         clipped = (abs(target_rpm_left) > self.max_motor_rpm or 
                    abs(target_rpm_right) > self.max_motor_rpm)
         
@@ -82,22 +77,22 @@ class MotorCmdVelSim(Node):
                 throttle_duration_sec=1.0
             )
         
-        # ========== 클리핑된 RPM → 실제 Twist ==========
-        # RPM → 바퀴 속도 [m/s]
+        # Clipped RPM → Actual Twist 
+        # RPM → Wheel speed [m/s]
         actual_v_left_ms = (clipped_rpm_left * self.wheel_circumference) / (60.0 * self.gear_ratio)
         actual_v_right_ms = (clipped_rpm_right * self.wheel_circumference) / (60.0 * self.gear_ratio)
         
-        # 차동 구동 역변환: (v_left, v_right) → (v, w)
+        # Differential drive inverse transformation: (v_left, v_right) → (v, w)
         v_actual = (actual_v_left_ms + actual_v_right_ms) / 2.0
         w_actual = (actual_v_right_ms - actual_v_left_ms) / self.wheel_base
         
-        # ========== 클리핑된 Twist 발행 ==========
+        # Publish clipped Twist
         output_twist = Twist()
         output_twist.linear.x = v_actual
         output_twist.angular.z = w_actual
         self.cmd_vel_pub.publish(output_twist)
         
-        # 값이 변했을 때만 로그 출력
+        # Log only when values change
         if self.prev_v_actual != v_actual or self.prev_w_actual != w_actual:
             self.get_logger().info(
                 f'[MOTOR_SIM] Input: v={v:.3f} m/s, w={w:.3f} rad/s | '

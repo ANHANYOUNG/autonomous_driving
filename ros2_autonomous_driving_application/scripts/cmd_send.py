@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+"""cmd send without mobile app"""
 import sys
 import time
 import argparse
@@ -9,13 +9,8 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-
-# ------------------------------------------------------------
-# 빠른 모드 전환을 위해 만든 파일
-# (1) 허용 명령 목록
-# ------------------------------------------------------------
+# Command List
 VALID_COMMANDS = {
-    # 상위 상태 전환
     "RUN",
     "KEY",
     "CAL",
@@ -23,11 +18,10 @@ VALID_COMMANDS = {
     "ALIGN",
     "STOP",
     "AUTO_START",
-    "path_A",   # ← 여기에 새 명령을 추가
+    "path_A", 
     "path_B",
+    # ← Add new commands here
 }
-# ------------------------------------------------------------
-
 
 HELP_TEXT = (
     "Allowed commands:\n"
@@ -39,13 +33,13 @@ HELP_TEXT = (
     "  E_STOP\n"
 )
 
-
 class StateCommandPublisher(Node):
     def __init__(self, topic_name: str = "/state_command"):
         super().__init__("state_command_publisher")
         self.pub = self.create_publisher(String, topic_name, 10)
         self.get_logger().info(f"[CMD_SEND] State command publisher ready → {topic_name}")
 
+    # Publish command
     def publish_command(self, text: str, repeat: int = 1, rate_hz: float = 0.0):
         if text not in VALID_COMMANDS:
             self.get_logger().warn(
@@ -64,6 +58,7 @@ class StateCommandPublisher(Node):
             if sleep_dt > 0.0 and i + 1 < repeat:
                 time.sleep(sleep_dt)
 
+    # Interactive shell 
 def interactive_shell(repeat: int, rate_hz: float):
     rclpy.init()
     node = StateCommandPublisher()

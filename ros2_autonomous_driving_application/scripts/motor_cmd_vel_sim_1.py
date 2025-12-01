@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""비례적 클리핑"""
+"""Motor clipping control, proportional, Sim"""
 
 import rclpy
 from rclpy.node import Node
@@ -10,7 +10,7 @@ class MotorCmdVelSim1(Node):
     def __init__(self):
         super().__init__('motor_cmd_vel_sim_1')
         
-        # ========== Parameters ==========
+        # Parameters
         self.declare_parameter('wheel_radius', 0.1)
         self.declare_parameter('wheel_base', 1.5)
         self.declare_parameter('gear_ratio', 60.0)
@@ -21,19 +21,15 @@ class MotorCmdVelSim1(Node):
         self.gear_ratio = self.get_parameter('gear_ratio').get_parameter_value().double_value
         self.max_motor_rpm = self.get_parameter('max_motor_rpm').get_parameter_value().double_value
         
-        # ========== Subscribers & Publishers ==========
-        self.cmd_vel_sub = self.create_subscription(
-            Twist,
-            '/cmd_vel_ppc',
-            self.cmd_vel_callback,
-            10
-        )
+        # Subscriptions
+        self.cmd_vel_sub = self.create_subscription(Twist,'/cmd_vel_ppc',self.cmd_vel_callback,10)
         
+        # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel_sim', 10)
         
         self.wheel_circumference = 2.0 * math.pi * self.wheel_radius
         
-        # 이전 명령 값 저장 (변화 감지용)
+        # Previous command for change detection
         self.prev_v_actual = None
         self.prev_w_actual = None
         
@@ -49,7 +45,7 @@ class MotorCmdVelSim1(Node):
         v = msg.linear.x
         w = msg.angular.z
         
-        # 목표 RPM
+        # Target RPM
         v_left_ms = v - (w * self.wheel_base * 0.5)
         v_right_ms = v + (w * self.wheel_base * 0.5)
         
@@ -60,22 +56,22 @@ class MotorCmdVelSim1(Node):
         target_rpm_left = (v_left_ms * 60.0 * self.gear_ratio) / self.wheel_circumference
         target_rpm_right = (v_right_ms * 60.0 * self.gear_ratio) / self.wheel_circumference
         
-        # 초과 비율 계산
+        # Calculate clipping ratio
         max_rpm_abs = max(abs(target_rpm_left), abs(target_rpm_right))
         
         if max_rpm_abs > self.max_motor_rpm:
             scale = self.max_motor_rpm / max_rpm_abs
             
-            # RPM에 scale 적용 (실제 모터 동작)
+            # Apply scale to RPM (actual motor operation)
             actual_rpm_left = target_rpm_left * scale
             actual_rpm_right = target_rpm_right * scale
             
-            # 클리핑된 RPM → (v, w) 역변환 (Gazebo 전달용)
-            # RPM → 휠 선속도 (m/s)
+            # Clipped RPM → (v, w) inverse conversion (for Gazebo)
+            # RPM → wheel linear velocity (m/s)
             v_left_ms_actual = (actual_rpm_left * self.wheel_circumference) / (60.0 * self.gear_ratio)
             v_right_ms_actual = (actual_rpm_right * self.wheel_circumference) / (60.0 * self.gear_ratio)
             
-            # 차동구동 역변환: v_L, v_R → v, w
+            # Differential drive inverse conversion: v_L, v_R → v, w
             v_actual = (v_left_ms_actual + v_right_ms_actual) / 2.0
             w_actual = (v_right_ms_actual - v_left_ms_actual) / self.wheel_base
             
@@ -89,7 +85,7 @@ class MotorCmdVelSim1(Node):
                 throttle_duration_sec=1.0
             )
         else:
-            # 한계 내 → 그대로 발행
+            # Within limits → publish as is
             v_actual = v
             w_actual = w
             actual_rpm_left = target_rpm_left
@@ -100,7 +96,7 @@ class MotorCmdVelSim1(Node):
         output_twist.angular.z = w_actual
         self.cmd_vel_pub.publish(output_twist)
         
-        # 값이 변했을 때만 로그 출력
+        # Log only when values change
         if self.prev_v_actual != v_actual or self.prev_w_actual != w_actual:
             self.get_logger().info(
                 f'[MOTOR_SIM_1] Input: v={v:.3f}, w={w:.3f} | '

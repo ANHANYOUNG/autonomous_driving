@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real, Proportional Clipping"""
+"""Motor clipping control proportional, Real"""
 
 import rclpy
 from rclpy.node import Node
@@ -15,13 +15,13 @@ class MotorCmdVelRealProportional(Node):
     def __init__(self):
         super().__init__('motor_cmd_vel_real_proportional')
         
-        # ========== Serial Port Parameters ==========
+        # Serial Port Parameters
         self.declare_parameter('port', '/dev/usb-left-top')
         self.declare_parameter('baudrate', 115200)
         port = self.get_parameter('port').get_parameter_value().string_value
         baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value
         
-        # ========== Kinematics Parameters ==========
+        # Kinematics Parameters
         self.declare_parameter('wheel_radius', 0.1)
         self.declare_parameter('wheel_base', 1.5)
         self.declare_parameter('gear_ratio', 60.0)
@@ -34,7 +34,7 @@ class MotorCmdVelRealProportional(Node):
         
         self.wheel_circumference = 2.0 * math.pi * self.wheel_radius
         
-        # ========== Serial Port Open ==========
+        # Serial Port Open
         try:
             self.ser = serial.Serial(port, baudrate, timeout=0.01)
             self.get_logger().info(
@@ -45,7 +45,7 @@ class MotorCmdVelRealProportional(Node):
             self.get_logger().error(f'[MOTOR_PROP] Failed to open serial port {port}: {e}')
             self.ser = None
 
-        # ========== Subscriptions ==========
+        # Subscriptions
         self.cmd_vel_sub = self.create_subscription(
             Twist,
             '/cmd_vel_out',
@@ -55,10 +55,10 @@ class MotorCmdVelRealProportional(Node):
         
         self.state_sub = self.create_subscription(String, '/robot_state', self.robot_state_callback, 10)
         
-        # ========== Publishers ==========
+        # Publishers
         self.motor_rpm_pub = self.create_publisher(Twist, '/motor_rpm', 10)
 
-        # ========== State Variables ==========
+        # State Variables
         self.current_robot_state = "STOP"
         self.motor_command = [0, 0]  # [rpm_left, rpm_right]
         self.received_motor_data = [0, 0]
@@ -67,8 +67,10 @@ class MotorCmdVelRealProportional(Node):
         self.prev_motor_command = None
         self.prev_v_input = None
         self.prev_w_input = None
+        self.prev_received_rpm = None  # Received RPM change detection
+        self.prev_sent_rpm = None  # Sent RPM change detection
         
-        # ========== Serial Communication Thread ==========
+        # Serial Communication Thread
         self.running = True
         if self.ser:
             self.serial_thread = threading.Thread(target=self.serial_handler, daemon=True)
@@ -91,16 +93,19 @@ class MotorCmdVelRealProportional(Node):
                     motor1_rpm, motor2_rpm = struct.unpack('<hh', data)
                     self.received_motor_data = [motor1_rpm, motor2_rpm]
 
-                    # 데이터 저장용 아무도 안 듣는 motor_rpm 퍼블리셔
+                    # Data storage only, no subscribers to motor_rpm
                     rpm_msg = Twist()
-                    rpm_msg.angular.x = float(motor1_rpm) # Left RPM (임시로 angular.x 사용)
-                    rpm_msg.angular.y = float(motor2_rpm) # Right RPM (임시로 angular.y 사용)
+                    rpm_msg.angular.x = float(motor1_rpm) # Left RPM (temporarily using angular.x)
+                    rpm_msg.angular.y = float(motor2_rpm) # Right RPM (temporarily using angular.y)
                     self.motor_rpm_pub.publish(rpm_msg)
 
-                    self.get_logger().info(
-                        f'[MOTOR_PROP] Received: M1={motor1_rpm} rpm, M2={motor2_rpm} rpm',
-                        throttle_duration_sec=1.0
-                    )
+                    # RPM 값이 변경될 때만 로그 출력
+                    if self.prev_received_rpm != self.received_motor_data:
+                        self.get_logger().info(
+                            f'[MOTOR_PROP] Received: M1={motor1_rpm} rpm, M2={motor2_rpm} rpm'
+                        )
+                        self.prev_received_rpm = self.received_motor_data.copy()
+                    
                     self.send_motor_response()
             except Exception as e:
                 if self.running:
@@ -112,10 +117,13 @@ class MotorCmdVelRealProportional(Node):
         try:
             response_data = struct.pack('<hh', int(self.motor_command[0]), int(self.motor_command[1]))
             self.ser.write(response_data)
-            self.get_logger().info(
-                f'[MOTOR_PROP] Sent command: M1={self.motor_command[0]}, M2={self.motor_command[1]}',
-                throttle_duration_sec=1.0
-            )
+            
+            # Log only when RPM command changes
+            if self.prev_sent_rpm != self.motor_command:
+                self.get_logger().info(
+                    f'[MOTOR_PROP] Sent: M1={self.motor_command[0]} rpm, M2={self.motor_command[1]} rpm'
+                )
+                self.prev_sent_rpm = self.motor_command.copy()
         except Exception as e:
             self.get_logger().error(f'[MOTOR_PROP] Serial write error: {e}')
 
@@ -152,7 +160,7 @@ class MotorCmdVelRealProportional(Node):
         target_rpm_left = (v_left_ms * 60.0 * self.gear_ratio) / self.wheel_circumference
         target_rpm_right = (v_right_ms * 60.0 * self.gear_ratio) / self.wheel_circumference
 
-        # ========== Proportional Clipping ==========
+        # Proportional Clipping
         max_rpm_abs = max(abs(target_rpm_left), abs(target_rpm_right))
         
         if max_rpm_abs > self.max_motor_rpm:

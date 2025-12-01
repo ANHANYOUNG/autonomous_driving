@@ -1,3 +1,4 @@
+# cmd_vel selector
 twist_mux:
   ros__parameters:
     use_stamped: false
@@ -7,20 +8,20 @@ twist_mux:
         timeout : 0.5
         priority: 50
       teleop:
-        topic   : /cmd_vel
+        topic   : /cmd_vel # manual control
         timeout : 0.5
         priority: 40
       motor_sim:
-        topic   : /cmd_vel_sim
+        topic   : /cmd_vel_sim # for simulation
         timeout : 0.5
         priority: 35
       calibration:
-        topic   : /cmd_vel_cal
+        topic   : /cmd_vel_cal # for calibration
         timeout : 0.5
         priority: 30
       pure_pursuit:
-        topic   : /cmd_vel_ppc
+        topic   : /cmd_vel_ppc # for ppc
         timeout : 0.5
         priority: 20
-    output_topic: /cmd_vel_out 
+    output_topic: /cmd_vel_out # final output
 

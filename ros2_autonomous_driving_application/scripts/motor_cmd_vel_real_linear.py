@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Real, Linear"""
-
+"""Motor clipping control linear priority, Real"""
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -15,18 +14,17 @@ class MotorCmdVelRealLinear(Node):
     def __init__(self):
         super().__init__('motor_cmd_vel_real_linear')
         
-        # ========== Serial Port Parameters ==========
+        # Serial Port Parameters
         self.declare_parameter('port', '/dev/usb-left-top')
         self.declare_parameter('baudrate', 115200)
         port = self.get_parameter('port').get_parameter_value().string_value
         baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value
         
-        # ========== Kinematics Parameters ==========
+        # Kinematics Parameters
         self.declare_parameter('wheel_radius', 0.1)
         self.declare_parameter('wheel_base', 1.5)
         self.declare_parameter('gear_ratio', 60.0)
         self.declare_parameter('max_motor_rpm', 3000.0)
-
         self.wheel_radius = self.get_parameter('wheel_radius').get_parameter_value().double_value
         self.wheel_base = self.get_parameter('wheel_base').get_parameter_value().double_value
         self.gear_ratio = self.get_parameter('gear_ratio').get_parameter_value().double_value
@@ -34,12 +32,12 @@ class MotorCmdVelRealLinear(Node):
         
         self.wheel_circumference = 2.0 * math.pi * self.wheel_radius
         
-        # ========== Max Velocities ==========
+        # Max Velocities
         self.max_linear_velocity = 0.35
         max_wheel_velocity = self.max_linear_velocity
         self.max_angular_velocity = (2.0 * max_wheel_velocity) / self.wheel_base
         
-        # ========== Serial Port Open ==========
+        # Serial Port Open
         try:
             self.ser = serial.Serial(port, baudrate, timeout=0.01)
             self.get_logger().info(
@@ -50,20 +48,14 @@ class MotorCmdVelRealLinear(Node):
             self.get_logger().error(f'[MOTOR_LINEAR] Failed to open serial port {port}: {e}')
             self.ser = None
 
-        # ========== Subscriptions ==========
-        self.cmd_vel_sub = self.create_subscription(
-            Twist,
-            '/cmd_vel_out',
-            self.cmd_vel_callback,
-            10
-        )
-        
+        # Subscriptions
+        self.cmd_vel_sub = self.create_subscription(Twist,'/cmd_vel_out',self.cmd_vel_callback,10)
         self.state_sub = self.create_subscription(String, '/robot_state', self.robot_state_callback, 10)
         
-        # ========== Publishers ==========
+        # Publishers
         self.motor_rpm_pub = self.create_publisher(Twist, '/motor_rpm', 10)
 
-        # ========== State Variables ==========
+        # State Variables
         self.current_robot_state = "STOP"
         self.motor_command = [0, 0]  # [rpm_left, rpm_right]
         self.received_motor_data = [0, 0]
@@ -72,8 +64,10 @@ class MotorCmdVelRealLinear(Node):
         self.prev_motor_command = None
         self.prev_v_input = None
         self.prev_w_input = None
+        self.prev_received_rpm = None  # Received RPM change detection
+        self.prev_sent_rpm = None  # Sent RPM change detection
         
-        # ========== Serial Communication Thread ==========
+        # Serial Communication Thread
         self.running = True
         if self.ser:
             self.serial_thread = threading.Thread(target=self.serial_handler, daemon=True)
@@ -89,6 +83,7 @@ class MotorCmdVelRealLinear(Node):
             f'  - Max Angular Velocity: {self.max_angular_velocity:.3f} rad/s'
         )
 
+
     def serial_handler(self):
         """Serial receive-transmit handler"""
         while self.running and self.ser and self.ser.is_open:
@@ -98,15 +93,19 @@ class MotorCmdVelRealLinear(Node):
                     motor1_rpm, motor2_rpm = struct.unpack('<hh', data)
                     self.received_motor_data = [motor1_rpm, motor2_rpm]
                     
-                    # 데이터 저장용 아무도 안 듣는 motor_rpm 퍼블리셔
+                    # Only for data storage no one listens to
                     rpm_msg = Twist()
-                    rpm_msg.angular.x = float(motor1_rpm) # Left RPM (임시로 angular.x 사용)
-                    rpm_msg.angular.y = float(motor2_rpm) # Right RPM (임시로 angular.y 사용)
+                    rpm_msg.angular.x = float(motor1_rpm) # Left RPM (temporarily using angular.x)
+                    rpm_msg.angular.y = float(motor2_rpm) # Right RPM (temporarily using angular.y)
                     self.motor_rpm_pub.publish(rpm_msg)
-                    self.get_logger().info(
-                        f'[MOTOR_LINEAR] Received: M1={motor1_rpm} rpm, M2={motor2_rpm} rpm',
-                        throttle_duration_sec=1.0
-                    )
+                    
+                    # Only log when RPM values change
+                    if self.prev_received_rpm != self.received_motor_data:
+                        self.get_logger().info(
+                            f'[MOTOR_LINEAR] Received: M1={motor1_rpm} rpm, M2={motor2_rpm} rpm'
+                        )
+                        self.prev_received_rpm = self.received_motor_data.copy()
+                    
                     self.send_motor_response()
             except Exception as e:
                 if self.running:
@@ -118,10 +117,13 @@ class MotorCmdVelRealLinear(Node):
         try:
             response_data = struct.pack('<hh', int(self.motor_command[0]), int(self.motor_command[1]))
             self.ser.write(response_data)
-            self.get_logger().info(
-                f'[MOTOR_LINEAR] Sent command: M1={self.motor_command[0]}, M2={self.motor_command[1]}',
-                throttle_duration_sec=1.0
-            )
+            
+            # Only log when RPM command changes
+            if self.prev_sent_rpm != self.motor_command:
+                self.get_logger().info(
+                    f'[MOTOR_LINEAR] Sent: M1={self.motor_command[0]} rpm, M2={self.motor_command[1]} rpm'
+                )
+                self.prev_sent_rpm = self.motor_command.copy()
         except Exception as e:
             self.get_logger().error(f'[MOTOR_LINEAR] Serial write error: {e}')
 
@@ -136,7 +138,7 @@ class MotorCmdVelRealLinear(Node):
     def cmd_vel_callback(self, msg: Twist):
         """
         Convert /cmd_vel to RPM with linear priority
-        Strategy: Secure v first, then damp w if RPM limit is exceeded
+        Strategy: Prioritize linear velocity and limit angular velocity based on remained RPM
         """
         # Stop motors if not in driving state
         if self.current_robot_state not in ["KEY", "RUN", "CALIBRATION", "ALIGN"]:
@@ -150,7 +152,7 @@ class MotorCmdVelRealLinear(Node):
             self.get_logger().error('[MOTOR_LINEAR] Wheel circumference is zero!')
             return
 
-        # ========== Linear Velocity Clipping (Priority 1) ==========
+        # Linear Velocity Clipping
         if abs(v_cmd) > self.max_linear_velocity:
             v_final = math.copysign(self.max_linear_velocity, v_cmd)
             self.get_logger().warn(
@@ -162,8 +164,8 @@ class MotorCmdVelRealLinear(Node):
         else:
             v_final = v_cmd
 
-        # ========== Angular Velocity Damping (Priority 2) ==========
-        # Calculate remaining RPM capacity after securing v
+        # Angular Velocity Damping
+        # Calculate remaining RPM capacity after linear
         wheel_velocity_for_v = abs(v_final)
         max_wheel_diff = self.max_linear_velocity - wheel_velocity_for_v
         
@@ -190,14 +192,14 @@ class MotorCmdVelRealLinear(Node):
         else:
             w_final = w_cmd
 
-        # ========== Convert to Wheel Velocities and RPM ==========
+        # Convert to Wheel Velocities and RPM
         v_left = v_final - (w_final * self.wheel_base * 0.5)
         v_right = v_final + (w_final * self.wheel_base * 0.5)
         
         rpm_left = (v_left * 60.0 * self.gear_ratio) / self.wheel_circumference
         rpm_right = (v_right * 60.0 * self.gear_ratio) / self.wheel_circumference
         
-        # ========== Safety Verification ==========
+        # Safety Verification
         if abs(rpm_left) > self.max_motor_rpm or abs(rpm_right) > self.max_motor_rpm:
             self.get_logger().error(
                 f'[MOTOR_LINEAR] RPM EXCEEDED (LOGIC ERROR)\n'

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+"""IMU Node"""
 import math
 import time
 import serial
@@ -13,28 +13,30 @@ SERIAL_PORT = '/dev/usb-right-bottom'
 BAUDRATE = 115200
 FRAME_ID = 'imu_link'
 
-# 공분산
+# Covariance
 COV_ORIENT = [0.0001,0,0, 0,0.0001,0, 0,0,0.0001]
 COV_GYRO   = [0.0001,0,0, 0,0.0001,0, 0,0,0.0001]
 COV_ACCEL  = [0.025,0,0, 0,0.025,0, 0,0,0.025]
 
-# IMU 상수
+# IMU Variables
 G_TO_MS2 = 9.80665
 DEG_TO_RAD = math.pi / 180.0
 WT_PKT_LEN = 11
 ACC_ID, GYRO_ID, ANGLE_ID = 0x51, 0x52, 0x53
 
 
-# ------------------------
-# 유틸
-# ------------------------
+# Utility Functions
+
+# 2 byte to signed int16
 def le_i16(lo, hi):
     v = (hi << 8) | lo
     return v - 0x10000 if v & 0x8000 else v
 
+# Checksum
 def checksum_ok(pkt):
     return (sum(pkt[:10]) & 0xFF) == pkt[10]
 
+# Roll, Pitch, Yaw (degrees) to Quaternion
 def rpy_deg_to_quat(roll_d, pitch_d, yaw_d):
     r = roll_d * DEG_TO_RAD * 0.5
     p = pitch_d * DEG_TO_RAD * 0.5
@@ -48,10 +50,6 @@ def rpy_deg_to_quat(roll_d, pitch_d, yaw_d):
     z = cr*cp*sy - sr*sp*cy
     return w, x, yy, z
 
-
-# ================================================
-# ROS2 IMU Node
-# ================================================
 class WT901CNode(Node):
     def __init__(self):
         super().__init__('wt901c_imu_node')
@@ -68,7 +66,7 @@ class WT901CNode(Node):
         self.euler_deg = [0,0,0]
         self.have_acc = self.have_gyro = self.have_ang = False
 
-        # 원하는 출력 주파수 설정 (예: 100Hz)
+        # Frequency setting
         self.set_return_rate(50)
 
         # 50Hz poll
@@ -77,9 +75,7 @@ class WT901CNode(Node):
         self.get_logger().info(f'[IMU] {SERIAL_PORT} @ {BAUDRATE}bps, frame_id={FRAME_ID}')
 
 
-    # -----------------------------
-    # 실제 센서 출력 주파수 설정
-    # -----------------------------
+    # Set actual sensor output frequency
     def set_return_rate(self, hz):
         rate_map = {
             1:0x03, 2:0x04, 5:0x05, 10:0x06, 20:0x07,
@@ -91,92 +87,96 @@ class WT901CNode(Node):
             return
 
         code = rate_map[hz]
-        # unlock
+
+        # unlock to change setting
         self.ser.write(bytes([0xFF,0xAA,0x69,0x88,0xB5]))
         time.sleep(0.05)
+
         # set frequency
         self.ser.write(bytes([0xFF,0xAA,0x03,code,0x00]))
         time.sleep(0.05)
+        
         # save
         self.ser.write(bytes([0xFF,0xAA,0x00,0x00,0x00]))
         time.sleep(0.05)
+
         self.get_logger().info(f"[IMU] Return rate set to {hz} Hz")
 
 
-    # -----------------------------
-    # 버퍼 읽기
-    # -----------------------------
+    # Read Buffer
     def poll(self):
         try:
-            data = self.ser.read(self.ser.in_waiting or 1)
+            data = self.ser.read(self.ser.in_waiting or 1) # Check number of bytes available
             if data:
-                self.buf += data
-                self._parse_buffer()
+                self.buf += data # Append raw bytes to buffer
+                self._parse_buffer() # Parse packets from buffer
         except Exception as e:
             self.get_logger().error(f'[IMU] read err: {e}')
 
 
-    # -----------------------------
-    # 패킷 파싱
-    # -----------------------------
+    # Parse Packets (Read bytes)
     def _parse_buffer(self):
         b = self.buf
         while True:
-            idx = b.find(b'\x55')
-            if idx < 0:
+            idx = b.find(b'\x55') # Packet start byte (0x55)
+            if idx < 0: # Header not found case
                 if len(b) > 2048: del b[:-1]
-                break
-            if idx > 0:
-                del b[:idx]
+                break # wait for more data
 
-            if len(b) < WT_PKT_LEN:
-                break
+            if idx > 0: # Header found, but not at start
+                del b[:idx] # Discard
 
-            pkt = bytes(b[:WT_PKT_LEN])
-            if not checksum_ok(pkt):
-                del b[0:1]
+            if len(b) < WT_PKT_LEN: # Check length
+                break # wait for more data
+
+            pkt = bytes(b[:WT_PKT_LEN]) # Extract packet (11 bytes)
+            if not checksum_ok(pkt): # Checksum Fail
+                del b[0:1] # Discard
                 continue
 
-            del b[:WT_PKT_LEN]
-            self._parse_packet(pkt)
+            del b[:WT_PKT_LEN] # Valid packet found, remove from buffer
+            self._parse_packet(pkt) # Process reading
 
-            if self.have_acc and self.have_gyro and self.have_ang:
+            if self.have_acc and self.have_gyro and self.have_ang: # All data received then publish
                 self.publish()
                 self.have_acc = self.have_gyro = self.have_ang = False
 
 
-    # -----------------------------
-    # 1개 패킷 처리
-    # -----------------------------
+    # Packet Decoder
     def _parse_packet(self, pkt):
-        typ = pkt[1]
-        d0,d1,d2,d3,d4,d5,_,_ = pkt[2:10]
+        typ = pkt[1] # Packet type 0x51: Acceleration, 0x52: Angular velocity, 0x53: Angle
+        d0,d1,d2,d3,d4,d5,_,_ = pkt[2:10] # Extract data bytes, Ignore Useles (Temp, etc)
+
+        # Convert to signed int16
         x = le_i16(d0,d1)
         y = le_i16(d2,d3)
         z = le_i16(d4,d5)
 
+        # Acceleration Packet (0x51)
         if typ == ACC_ID:
+            # Formula: (Raw / 32768 * 16g) * 9.8(m/s^2)
             self.acc[0] = (x/32768*16)*G_TO_MS2
             self.acc[1] = (y/32768*16)*G_TO_MS2
             self.acc[2] = (z/32768*16)*G_TO_MS2
             self.have_acc = True
 
+        # Angular Velocity Packet (0x52)
         elif typ == GYRO_ID:
+            # Formula: (Raw / 32768 * 2000deg/s) * (pi/180)
             self.gyr[0] = (x/32768*2000)*DEG_TO_RAD
             self.gyr[1] = (y/32768*2000)*DEG_TO_RAD
             self.gyr[2] = (z/32768*2000)*DEG_TO_RAD
             self.have_gyro = True
 
+        # Angle Packet (0x53)
         elif typ == ANGLE_ID:
+            # Formula: Raw / 32768 * 180 degrees
             self.euler_deg[0] = x/32768*180
             self.euler_deg[1] = y/32768*180
             self.euler_deg[2] = z/32768*180
             self.have_ang = True
 
-
-    # -----------------------------
-    # ROS IMU 메시지 발행
-    # -----------------------------
+    # Publish IMU Message, Topic Structure
     def publish(self):
         now = self.get_clock().now().to_msg()
         msg = Imu()
@@ -201,10 +201,6 @@ class WT901CNode(Node):
 
         self.pub.publish(msg)
 
-
-# ================================================
-# MAIN
-# ================================================
 def main():
     rclpy.init()
     node = WT901CNode()

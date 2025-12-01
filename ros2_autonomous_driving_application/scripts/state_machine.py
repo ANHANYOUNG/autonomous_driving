@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+"""State Machine: Execution of States"""
 import math
 import numpy as np
 import rclpy
@@ -22,28 +22,30 @@ class StateMachineExecutor(Node):
         super().__init__('state_machine_executor_node', allow_undeclared_parameters=True, automatically_declare_parameters_from_overrides=True)
         self.get_logger().info('State Machine Executor has been started.')
 
-        # 1. 상태 변수
-        self.current_state = 'INIT' # '관리자'로부터 상태를 받기 전
+        # Initial State
+        self.current_state = 'INIT'
 
-        # 3. 발행 (Publications)
+        # Publishers
         self.stop_pub = self.create_publisher(Twist, '/cmd_vel_stop', 1)
-        self.zero_twist = Twist() # 정지 명령용 (모든 필드 0)
+        self.ppc_enable_pub = self.create_publisher(Bool, '/ppc/enable', 5)
+        self.ppc_enable_pub.publish(Bool(data=False))
+        self.ppc_enabled = False
+        
+        # Zero Twist for stopping
+        self.zero_twist = Twist()
         self.zero_twist.linear.x = 0.0
         self.zero_twist.linear.y = 0.0
         self.zero_twist.linear.z = 0.0
         self.zero_twist.angular.x = 0.0
         self.zero_twist.angular.y = 0.0
         self.zero_twist.angular.z = 0.0
-        self.ppc_enable_pub = self.create_publisher(Bool, '/ppc/enable', 5)
-        self.ppc_enable_pub.publish(Bool(data=False))
-        self.ppc_enabled = False
 
-        # 4. 구독 (Subscriptions)
+        # Subscriptions
         self.create_subscription(String, '/robot_state', self.state_callback, 10)
-        
-        # 사람 감지 토픽 구독
         self.create_subscription(Bool, '/person_detected', self.person_detected_callback, 10)
-        self.person_detected = False  # 사람 감지 플래그
+        self.person_detected = False
+
+        # Calibration and Align Variables
 
         # Calibration I/O
         self.cal_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -51,47 +53,42 @@ class StateMachineExecutor(Node):
         self.imu_offset_pub = self.create_publisher(Float64, '/yaw_offset', 10)
         self.yaw_offset_est = 0.0
         
-        # UWB + IMU 직접 구독 (EKF 배제)
+        # UWB + IMU for CAL
         self.uwb_sub = self.create_subscription(PoseWithCovarianceStamped, '/abs_xy', self.uwb_callback, 10)
         self.imu_cal_sub = self.create_subscription(Imu, '/imu_cal', self.imu_cal_callback, 10)
         
-        # EKF는 ALIGN 상태에서만 사용
+        # EKF for Align
         self.odom_sub = self.create_subscription(Odometry, '/odometry/ekf_single', self.odom_callback, 10)
 
-        # CALIBRATION 상태변수
         self.cal_state = 'IDLE'
         self.current_ekf = None
         
-        # CAL 전용: 따로 모으는 데이터 리스트
-        self.cal_uwb_points = []  # [(x, y), ...] UWB 위치 데이터
-        self.cal_imu_yaws = []    # [yaw, ...] IMU Yaw 데이터
+        # CAL Data Storage
+        self.cal_uwb_points = []  # [(x, y), ...] UWB position data
+        self.cal_imu_yaws = []    # [yaw, ...] IMU Yaw data
         
-        # CAL 반복별 구간 인덱스 기록
+        # CAL Repetition Indices
         self.cal_rep_indices = []  # [(forward_start, forward_end, backward_end), ...]
-        self.cal_rep_start_idx = 0  # 현재 반복의 시작 인덱스
+        self.cal_rep_start_idx = 0  # Start index of the current repetition
         
-        # CAL 전용 위치 변수 (제거 - UWB/IMU 직접 사용)
-        # self.cal_current_x = 0.0
-        # self.cal_current_y = 0.0
-        # self.cal_current_yaw = 0.0    
-        # self.cal_points = []
+        # CAL Time
         self.cal_start_time = None
         
-        # CAL 시간 보상 (사람 감지 시 스톱워치 멈춤)
-        self.cal_pause_start_time = None  # 일시정지 시작 시각
-        self.cal_total_paused_duration = 0.0  # 누적 일시정지 시간 (초)
+        # CAL Time Compensation for Pauses When Person Detected
+        self.cal_pause_start_time = None  # Pause start time
+        self.cal_total_paused_duration = 0.0  # Total paused duration
         
-        # CAL Parameters # TODO UWB raw data 5Hz 감안해서 시간 설정
+        # CAL Parameters
         self.forward_time = 10.0
         self.backward_time = 10.0
         self.forward_speed = 0.30
         self.backward_speed = -0.30
-        self.num_repetitions = 3  # ★ 전후진 반복 횟수 (변경 가능)
+        self.num_repetitions = 3  # ★ Number of forward-backward repetitions (modifiable)
         self.calculated_yaw_error = 0.0
-        self.max_yaw_correction_deg = 360.0
+        self.max_yaw_correction_deg = 360.0 # No limitation for correnction
         
-        # CAL 반복 카운터
-        self.cal_current_rep = 0  # 현재 반복 횟수 (0부터 시작)
+        # CAL Repetition Counter
+        self.cal_current_rep = 0
         
         # CAL Data Logging
         self.cal_data_dir = os.path.expanduser('~/calibration_data')
@@ -101,60 +98,60 @@ class StateMachineExecutor(Node):
         # ALIGN I/O
         self.align_cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         
-        # ALIGN 상태 변수
+        # Initial ALIGN State
         self.align_state = 'IDLE'
         
-        # ALIGN 전용 위치 변수
+        # ALIGN Positions
         self.align_current_x = 0.0
         self.align_current_y = 0.0
         self.align_current_yaw = 0.0
         self.start_pos_for_dot_product = None
 
         # ALIGN Parameters
-        self.align_target_pos = (3.0, 6.0) # (x, y)
-        self.align_target_yaw = math.pi * 0.5
+        self.align_target_pos = (3.0, 6.0) # Target position (x, y)
+        self.align_target_yaw = math.pi * 0.5 # Target yaw (rad)
         self.align_linear_speed = 0.3
         self.align_angular_speed = 0.2
-        self.align_yaw_threshold = 0.01 # 약 0.57도
+        self.align_yaw_threshold = 0.01 # Approximately 0.57 degrees
         
-        # 로그 출력 제어 (변화 감지용)
+        # Log output control (for change detection)
         self.last_log_uwb_count = 0
         self.last_log_imu_count = 0
         self.last_log_align_state = None
         self.last_log_align_distance = None
         self.last_log_align_yaw_error = None
         
-        # 타이머 (마지막에 생성)
+        # Control Frequency
         self.publish_timer = self.create_timer(0.1, self.state_machine_loop)
 
-    # ========== State Machine Loop ==========
+    # State Machine Loop
     def state_machine_loop(self):
-        """0.1초마다 실행되는 루프"""
-        # PPC enable 주기적 발행 (1초마다 = 10번에 1번, timer 통일해서 부하 낮추기 )
+        """Loop executed every 0.1 seconds"""
+        # PPC enable publishing (at 1 Hz)
         if hasattr(self, '_loop_counter'):
             self._loop_counter += 1
         else:
             self._loop_counter = 0
         
-        if self._loop_counter % 10 == 0:  # 1초마다
+        if self._loop_counter % 10 == 0:  # Every 1 second
             if self.ppc_enabled and not self.person_detected:
                 self.ppc_enable_pub.publish(Bool(data=True))
             else:
                 self.ppc_enable_pub.publish(Bool(data=False))
         
-        # ========== 검문소: 사람 감지 시 일시정지 ==========
+        # Checkpoint: Pause when person detected
         if self.person_detected:
-            # 모든 상태에서 즉시 정지 (상태는 유지)
+            # Immediate stop in all states (state is maintained)
             self.stop_pub.publish(self.zero_twist)
             
-            # PPC 일시정지 (진행 상황은 유지하되 움직임만 멈춤)
+            # PPC pause (progress is maintained but movement stops)
             if self.current_state == 'RUN':
                 self.ppc_enable_pub.publish(Bool(data=False))
             
-            return  # 이후 로직 건너뛰기
+            return  # Skip subsequent logic
         
-        # ========== 사람 없을 때만 정상 동작 수행 ==========
-        # RUN 상태일 때 PPC 재활성화
+        # Normal operation only when no person detected
+        # Reactivate PPC in RUN state
         if self.current_state == 'RUN':
             self.ppc_enable_pub.publish(Bool(data=True))
         
@@ -167,9 +164,9 @@ class StateMachineExecutor(Node):
         elif self.current_state == 'ALIGN':
             self.align_callback()
 
-    # ========== State Transition ==========
+    # State Transition
     def state_callback(self, msg):
-        """마스터 상태 변경 감지 및 진입/이탈 동작 수행"""
+        """Detect state change and perform entry/exit actions"""
         new_state = msg.data
         if new_state == self.current_state:
             return
@@ -178,8 +175,8 @@ class StateMachineExecutor(Node):
         self.current_state = new_state
         self.get_logger().info(f'[STATE_MACHINE] Changed: {old_state} -> {new_state}')
 
-        # === Exit 로직 ===
-        # 작업 완료 후 정지 명령 발행
+        # Exit logic
+        # Stop command after task completion
         if old_state == 'RUN':
             self.ppc_enabled = False
             self.get_logger().info('[STATE_MACHINE] RUN: PPC disabled')
@@ -194,7 +191,7 @@ class StateMachineExecutor(Node):
             self.align_cmd_vel_pub.publish(self.zero_twist)
             self.get_logger().info('[STATE_MACHINE] ALIGN: Motors stopped')
 
-        # === Entry 로직 ===
+        # Entry logic
         if new_state == 'STOP':
             self.stop_pub.publish(self.zero_twist)
             self.get_logger().info('[STATE_MACHINE] STOP: Emergency Stop')
@@ -209,20 +206,20 @@ class StateMachineExecutor(Node):
         elif new_state == 'CALIBRATION':
             self.cal_uwb_points = []
             self.cal_imu_yaws = []
-            self.cal_rep_indices = []  # 반복별 구간 인덱스 초기화
-            self.cal_rep_start_idx = 0  # 시작 인덱스 초기화
+            self.cal_rep_indices = []  # Repetition segment indices initialization
+            self.cal_rep_start_idx = 0  # Start index initialization
             self.calculated_yaw_error = 0.0
             self.cal_state = 'FORWARD'
             self.cal_start_time = self.get_clock().now()
             
-            # 시간 보상 변수 초기화
+            # Time compensation variable initialization
             self.cal_pause_start_time = None
             self.cal_total_paused_duration = 0.0
             
-            # 반복 카운터 초기화
+            # Repetition counter initialization
             self.cal_current_rep = 0
             
-            # 세션 데이터 초기화
+            # Session data initialization
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             self.cal_session_data = {
                 'timestamp': timestamp,
@@ -233,7 +230,7 @@ class StateMachineExecutor(Node):
                     'backward_time': self.backward_time,
                     'forward_speed': self.forward_speed,
                     'backward_speed': self.backward_speed,
-                    'num_repetitions': self.num_repetitions  # ★ 파라미터 기록
+                    'num_repetitions': self.num_repetitions  # ★ Parameter recording
                 },
                 'results': {}
             }
@@ -247,33 +244,33 @@ class StateMachineExecutor(Node):
             self.start_pos_for_dot_product = None
             self.get_logger().info('[STATE_MACHINE] ALIGN: Started')
 
-    # ========== Person Detected ==========
+    # Person Detected
     def person_detected_callback(self, msg: Bool):
-        """사람 감지 상태 업데이트 - 상태 변화만 로그"""
+        """Update person detection status - log only on state change"""
         was_detected = self.person_detected
         self.person_detected = msg.data
         
-        # 상태 변화 시에만 로그 출력 및 시간 보상
+        # Log and time compensation only on state change
         if not was_detected and self.person_detected:
-            # ========== 사람 감지: 일시정지 시작 ==========
+            # Person Detected: Pause Start
             self.get_logger().warn('[SAFETY] Person DETECTED - PAUSING all operations')
             
             if self.current_state == 'RUN':
                 self.ppc_enable_pub.publish(Bool(data=False))
             
-            # CALIBRATION 중이면 스톱워치 멈춤
+            # If in CALIBRATION, pause the stopwatch
             if self.current_state == 'CALIBRATION' and self.cal_state in ['FORWARD', 'BACKWARD']:
                 self.cal_pause_start_time = self.get_clock().now()
                 self.get_logger().info('[CAL] Stopwatch PAUSED')
                 
         elif was_detected and not self.person_detected:
-            # ========== 사람 사라짐: 재개 ==========
+            # Person Cleared: Resume
             self.get_logger().info('[SAFETY] Person CLEARED - RESUMING operations')
             
             if self.current_state == 'RUN':
                 self.ppc_enable_pub.publish(Bool(data=True))
             
-            # CALIBRATION 중이면 시간 보상 (스톱워치 시간 이동)
+            # If in CALIBRATION, compensate time (adjust stopwatch time)
             if self.current_state == 'CALIBRATION' and self.cal_pause_start_time is not None:
                 now = self.get_clock().now()
                 paused_duration = (now - self.cal_pause_start_time).nanoseconds * 1e-9
@@ -286,40 +283,37 @@ class StateMachineExecutor(Node):
                 
                 self.cal_pause_start_time = None
 
-    # EKF 값 수신 상태별 변수 구분 필요
-    # ========== Sensor & Input ==========
+    # Sensor & Input 
     def odom_callback(self, msg):
-        """EKF 오도메트리 수신"""
-        # ALIGN 모드가 아니면 데이터 저장도 하지 않고 바로 리턴
+        # Only used in ALIGN
         if self.current_state != 'ALIGN':
             return
 
-        # 무거운 쿼터니언->Yaw 변환을 여기서 하지 않고 메시지만 저장
+        # Save current EKF odometry
         self.current_ekf = msg
     
     def uwb_callback(self, msg: PoseWithCovarianceStamped):
-        """UWB 절대 위치 수신 (/abs_xy)"""
         if self.current_state != 'CALIBRATION':
             return
         
         if self.cal_state not in ['FORWARD', 'BACKWARD']:
             return
         
-        # 사람 감지 시 기록 중단
+        # Pause recording if person detected
         if self.person_detected:
             return
         
-        # 위치만 저장 (타임스탬프 신경 안 씀)
+        # Save only position (ignore timestamp)
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
         
-        # 유효성 검사
+        # Validity check
         if not (math.isfinite(x) and math.isfinite(y)):
             return
         
         self.cal_uwb_points.append((x, y))
         
-        # 로그 (10개 단위로, 변화가 있을 때만)
+        # Log every 10 points, only if count has changed
         if len(self.cal_uwb_points) // 10 > self.last_log_uwb_count:
             self.last_log_uwb_count = len(self.cal_uwb_points) // 10
             self.get_logger().info(
@@ -334,30 +328,29 @@ class StateMachineExecutor(Node):
         if self.cal_state not in ['FORWARD', 'BACKWARD']:
             return
         
-        # 사람 감지 시 기록 중단
+        # Pause recording if person detected
         if self.person_detected:
             return
         
-        # Yaw만 저장 (타임스탬프 신경 안 씀)
+        # Save only Yaw
         yaw = self._yaw_from_quat(msg.orientation)
         self.cal_imu_yaws.append(yaw)
         
-        # 로그 (100개 단위로, 변화가 있을 때만)
+        # Log every 100 values, only if count has changed
         if len(self.cal_imu_yaws) // 100 > self.last_log_imu_count:
             self.last_log_imu_count = len(self.cal_imu_yaws) // 100
             self.get_logger().info(
                 f'[CAL] IMU data collected: {len(self.cal_imu_yaws)} yaw values'
             )
 
-    # ========== Calibration ==========
+    # Calibration
     def run_calibration_step(self):
-        """CALIBRATION 단계별 실행"""
         if self.current_state != 'CALIBRATION':
             return
             
         now = self.get_clock().now()
         
-        # 실제 경과 시간 = (현재 시각 - 시작 시각) - 누적 일시정지 시간
+        # Actual elapsed time = (current time - start time) - total paused duration
         raw_elapsed = (now - self.cal_start_time).nanoseconds * 1e-9 if self.cal_start_time else 0.0
         dt = raw_elapsed - self.cal_total_paused_duration
 
@@ -367,7 +360,7 @@ class StateMachineExecutor(Node):
             self.cal_pub.publish(tw)
             
             if dt >= self.forward_time:
-                # Forward 구간 종료 인덱스 기록
+                # Record forward segment end index
                 forward_end_idx = len(self.cal_uwb_points) - 1
                 
                 self.cal_state = 'BACKWARD'
@@ -378,7 +371,7 @@ class StateMachineExecutor(Node):
                     f'  Total - UWB: {len(self.cal_uwb_points)} points, IMU: {len(self.cal_imu_yaws)} values'
                 )
                 
-                # 임시로 forward_end_idx 저장 (backward 끝나면 완성)
+                # Temporarily save forward_end_idx (will be finalized after backward)
                 self.cal_forward_end_idx = forward_end_idx
 
         elif self.cal_state == 'BACKWARD':
@@ -387,10 +380,10 @@ class StateMachineExecutor(Node):
             self.cal_pub.publish(tw)
             
             if dt >= self.backward_time:
-                # Backward 구간 종료 인덱스 기록
+                # Record backward segment end index
                 backward_end_idx = len(self.cal_uwb_points) - 1
                 
-                # 현재 반복의 구간 인덱스 저장
+                # Save current repetition segment indices
                 self.cal_rep_indices.append({
                     'rep_num': self.cal_current_rep + 1,
                     'forward_start': self.cal_rep_start_idx,
@@ -400,12 +393,12 @@ class StateMachineExecutor(Node):
                     'num_backward_points': backward_end_idx - self.cal_forward_end_idx
                 })
                 
-                # 반복 카운터 증가
+                # Increase repetition counter
                 self.cal_current_rep += 1
                 
-                # 반복 완료 여부 확인
+                # Check if all repetitions are complete
                 if self.cal_current_rep >= self.num_repetitions:
-                    # ★ 모든 반복 완료 → 계산 단계로
+                    # All repetitions complete -> Calculating
                     self.cal_state = 'CALCULATING'
                     self.cal_start_time = now
                     self.cal_pub.publish(self.zero_twist)
@@ -415,8 +408,8 @@ class StateMachineExecutor(Node):
                         f'  Total UWB: {len(self.cal_uwb_points)} points, IMU: {len(self.cal_imu_yaws)} values'
                     )
                 else:
-                    # ★ 다음 반복 시작 → FORWARD로 복귀
-                    # 다음 반복의 시작 인덱스 설정
+                    # Next repetition start -> Return to FORWARD
+                    # Set start index for next repetition
                     self.cal_rep_start_idx = backward_end_idx + 1
                     
                     self.cal_state = 'FORWARD'
@@ -429,7 +422,7 @@ class StateMachineExecutor(Node):
                     )
                 
         elif self.cal_state == 'CALCULATING':
-            # 최소 데이터 확인
+            # Check minimum data
             if len(self.cal_uwb_points) < 20:
                 self.get_logger().error(f'[CAL] Not enough UWB data: {len(self.cal_uwb_points)} < 20')
                 self.cal_state = 'FINISHED'
@@ -444,8 +437,8 @@ class StateMachineExecutor(Node):
                 self._save_calibration_data(success=False, reason='insufficient_imu_data')
                 return
             
-            # UWB 각도
-            # 방법: PCA로 좌표들의 주성분(방향 벡터) 구한 후 각도 계산
+            # UWB angle
+            # Method: Calculate angle by finding the principal component (direction vector) of the coordinates using PCA
             uwb_array = np.array(self.cal_uwb_points)
             
             if len(uwb_array) < 20:
@@ -455,77 +448,77 @@ class StateMachineExecutor(Node):
                 self._save_calibration_data(success=False, reason='insufficient UWB data')
                 return
             
-            # 최대 거리 지점 기준 Forward 구간 Backward 구간 구분
+            # Separate Forward and Backward segments based on the point with the maximum distance
             start_pt = uwb_array[0]
             distances = np.linalg.norm(uwb_array - start_pt, axis=1)
-            max_dist_idx = np.argmax(distances)  # 최대 거리 지점 (반환점)
+            max_dist_idx = np.argmax(distances)  # Point with maximum distance (turning point)
             uwb_forward = uwb_array[:max_dist_idx+1]
             
-            # 전체 구간으로 PCA 수행
+            # Perform PCA on the entire segment
             mean_pt = np.mean(uwb_array, axis=0)
             centered = uwb_array - mean_pt
             
-            # SVD로 주성분 추출
+            # Extract principal components using SVD(Singular Value Decomposition)
             U, S, Vt = np.linalg.svd(centered, full_matrices=False)
-            pc1 = Vt[0]  # 첫 번째 주성분 (방향 벡터)
+            pc1 = Vt[0]  # First principal component (direction vector)
             
-            # 방향 일관성: Forward 시작->끝 방향과 일치하도록 조정 (전진 방향)
-            end_pt = uwb_forward[-1]  # start_pt는 위에서 이미 계산됨
+            # Direction consistency: Adjust to match Forward start->end direction (forward direction)
+            end_pt = uwb_forward[-1]  # start_pt is already calculated above
             forward_vec = end_pt - start_pt
             if np.dot(pc1, forward_vec) < 0:
-                pc1 = -pc1  # PCA 방향을 전진 방향으로 뒤집기
+                pc1 = -pc1  # Flip PCA direction to forward direction
             
-            # Forward 주행 거리 확인 (시작 -> forward 끝)
+            # Check forward driving distance (start -> forward end)
             forward_distance = math.hypot(forward_vec[0], forward_vec[1])
             
-            # Backward 주행 거리 확인 (반환점 -> 끝)
+            # Check backward driving distance (turning point -> end)
             backward_vec = uwb_array[-1] - end_pt
             backward_distance = math.hypot(backward_vec[0], backward_vec[1])
             
             spread_along_pc = np.std(np.dot(centered, pc1))
             
-            # UWB 정밀도: PCA 선에서 수직 거리의 절댓값 평균 (mm)
-            residuals = np.cross(centered, pc1)  # 부호 있는 잔차
-            uwb_precision_mm = np.mean(np.abs(residuals)) * 1000  # mm 단위
+            # UWB precision: Mean absolute perpendicular distance from PCA line (mm)
+            residuals = np.cross(centered, pc1)  # Signed residuals
+            uwb_precision_mm = np.mean(np.abs(residuals)) * 1000  # In mm
             
-            if forward_distance < 0.5:  # Forward 주행 거리가 너무 짧음
+            if forward_distance < 0.5:  # Forward driving distance too short
                 self.get_logger().error(f'[CAL] Forward distance too short: {forward_distance:.2f}m < 0.5m')
                 self.cal_state = 'FINISHED'
                 self.command_pub.publish(String(data='STOP'))
                 self._save_calibration_data(success=False, reason='short_forward_distance')
                 return
             
-            # PCA 방향 벡터로부터 각도 계산 (전진 방향)
-            uwb_angle = math.atan2(pc1[1], pc1[0])  # UWB 경로 각도 (rad)
+            # Calculate angle from PCA direction vector (forward direction)
+            uwb_angle = math.atan2(pc1[1], pc1[0])  # UWB path angle (rad)
             
-            # IMU 각도
-            # 방법: 각 yaw를 단위벡터로 변환 후 평균 벡터의 각도 계산
+            # IMU angle
+            # Method: Convert each yaw to a unit vector and calculate the angle of the mean vector
             imu_array = np.array(self.cal_imu_yaws)
             
-            # 각도를 2D 단위벡터로 변환: (cos(yaw), sin(yaw))
+            # Convert angles to 2D unit vectors: (cos(yaw), sin(yaw))
             imu_vectors = np.column_stack([np.cos(imu_array), np.sin(imu_array)])  # (N, 2)
             
-            # 벡터 평균 (방향의 평균)
+            # Vector mean (mean direction)
             imu_mean = np.mean(imu_vectors, axis=0)
             
-            # 평균 벡터로부터 각도 계산
-            imu_angle = math.atan2(imu_mean[1], imu_mean[0])  # IMU 방향 각도 (rad)
+            imu_angle = math.atan2(imu_mean[1], imu_mean[0])  # IMU direction angle (rad)
+            # Calculate angle from mean vector
             
-            # IMU 편차 계산 (각도 공간에서의 표준편차)
+            # Calculate IMU deviation (standard deviation in angle space)
             angle_diffs = np.array([self._normalize_angle(yaw - imu_angle) for yaw in imu_array])
             imu_std_dev = np.std(angle_diffs)
             
-            # Offset 각도
-            # Yaw 오프셋 = (UWB) - (IMU)
+            # Offset Angle
+            # Yaw offset = (UWB) - (IMU)
             yaw_offset_angle = self._normalize_angle(uwb_angle - imu_angle)
             
             self.calculated_yaw_error = yaw_offset_angle
             
-            # 결과 저장
+            # Save results
             if self.cal_session_data is not None:
                 self.cal_session_data['results'] = {
-                    'num_repetitions_completed': self.cal_current_rep,  # ★ 완료된 반복 횟수
-                    'repetition_indices': self.cal_rep_indices,  # ★ 각 반복의 구간 정보
+                    'num_repetitions_completed': self.cal_current_rep,  # Completed repetitions
+                    'repetition_indices': self.cal_rep_indices,  # Indices of each repetition segment
                     'num_uwb_points': len(self.cal_uwb_points),
                     'num_uwb_forward': len(uwb_forward),
                     'max_dist_idx': int(max_dist_idx),
@@ -562,8 +555,7 @@ class StateMachineExecutor(Node):
                 self._save_calibration_data(success=False, reason='error_too_large')
                 return
             
-            # 증분 오차를 /yaw_offset 토픽으로 발행
-            # imu_offset 노드가 기존 오프셋에 이 값을 더함 (누적)
+            # imu_cal = current imu + yaw_err
             self.imu_offset_pub.publish(Float64(data=yaw_err))
             self.yaw_offset_est = self._normalize_angle(self.yaw_offset_est + yaw_err)
             
@@ -578,11 +570,11 @@ class StateMachineExecutor(Node):
             self._save_calibration_data(success=True)
 
     def _save_calibration_data(self, success=True, reason=''):
-        """캘리브레이션 데이터를 파일로 저장"""
+        """Save calibration data to file"""
         if self.cal_session_data is None:
             return
         
-        # UWB와 IMU 데이터를 별도로 저장
+        # Save UWB and IMU data
         self.cal_session_data['uwb_points'] = [
             [float(x), float(y)] for x, y in self.cal_uwb_points
         ]
@@ -594,12 +586,12 @@ class StateMachineExecutor(Node):
         
         timestamp = self.cal_session_data['timestamp']
         
-        # JSON 파일로 저장
+        # Save as JSON file
         json_file = os.path.join(self.cal_data_dir, f'cal_{timestamp}.json')
         with open(json_file, 'w') as f:
             json.dump(self.cal_session_data, f, indent=2)
         
-        # NumPy 배열로도 저장 (빠른 로딩용)
+        # Save as NumPy arrays
         npy_uwb_file = os.path.join(self.cal_data_dir, f'cal_{timestamp}_uwb.npy')
         npy_imu_file = os.path.join(self.cal_data_dir, f'cal_{timestamp}_imu.npy')
         np.save(npy_uwb_file, np.array(self.cal_uwb_points))
@@ -609,15 +601,14 @@ class StateMachineExecutor(Node):
         self.get_logger().info(f'[CAL] UWB data: {npy_uwb_file} ({len(self.cal_uwb_points)} points)')
         self.get_logger().info(f'[CAL] IMU data: {npy_imu_file} ({len(self.cal_imu_yaws)} yaw values)')
 
-    # ========== Align ==========
-    # TODO align 제어
+    # Align
+    # TODO align control
     def align_callback(self):
-        """ALIGN 단계별 실행"""
-        # 저장된 데이터가 없으면 리턴
+        # Return if no saved data
         if not hasattr(self, 'current_ekf') or self.current_ekf is None:
             self.align_cmd_vel_pub.publish(self.zero_twist)
             return
-        # ekf 좌표값으로 계산
+        # Calculate using EKF coordinates
         msg = self.current_ekf
         self.align_current_x = msg.pose.pose.position.x
         self.align_current_y = msg.pose.pose.position.y
@@ -631,7 +622,7 @@ class StateMachineExecutor(Node):
                 target_pos[0] - self.align_current_x)
             yaw_error = self._normalize_angle(angle_to_target - self.align_current_yaw)
             
-            # 상태 변화 또는 큰 오차 변화 시에만 로그
+            # Log only on state change or significant error change
             yaw_error_deg = math.degrees(yaw_error)
             if (self.last_log_align_state != 'ALIGN_ROTATE_1' or 
                 self.last_log_align_yaw_error is None or
@@ -664,7 +655,7 @@ class StateMachineExecutor(Node):
             
             distance = np.linalg.norm(robot_pos - curr_wp)
             
-            # 거리 변화가 0.5m 이상일 때만 로그
+            # Log only if distance changes by more than 0.5m
             if (self.last_log_align_state != 'ALIGN_FORWARD' or
                 self.last_log_align_distance is None or
                 abs(distance - self.last_log_align_distance) > 0.5):
@@ -683,7 +674,7 @@ class StateMachineExecutor(Node):
             target_yaw = self.align_target_yaw
             yaw_error = self._normalize_angle(target_yaw - self.align_current_yaw)
             
-            # 상태 변화 또는 큰 오차 변화 시에만 로그
+            # Log only on state change or significant error change
             yaw_error_deg = math.degrees(yaw_error)
             if (self.last_log_align_state != 'ALIGN_ROTATE_2' or
                 self.last_log_align_yaw_error is None or
@@ -710,7 +701,7 @@ class StateMachineExecutor(Node):
             
         self.align_cmd_vel_pub.publish(twist_msg)
 
-    # ========== Utility ==========
+    # Utility
     def _normalize_angle(self, a):
         """각도를 -pi ~ pi 범위로 정규화"""
         while a > math.pi:

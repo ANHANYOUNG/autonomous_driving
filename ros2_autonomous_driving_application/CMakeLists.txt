@@ -32,15 +32,16 @@ install(PROGRAMS
   scripts/uwb_publisher_dummy.py
   scripts/imu.py
   scripts/imu_offset.py
+
   # control
-  scripts/ppc.py
-  scripts/ppc_2.py
+  scripts/ppc_sim.py
   scripts/ppc_real.py
-  scripts/ppc_real_2.py
+
   # wifi
   scripts/app_wifi_rx.py
   scripts/app_wifi_tx.py
   scripts/app_bridge.py
+
   # motor
   scripts/motor_cmd_vel_trx.py
   scripts/motor_cmd_vel_sim.py
@@ -50,10 +51,12 @@ install(PROGRAMS
   scripts/motor_cmd_vel_real.py
   scripts/motor_cmd_vel_real_proportional.py
   scripts/motor_cmd_vel_real_linear.py
+
   # state
   scripts/state_machine.py
   scripts/state_manager.py
   scripts/cmd_send.py
+  
   # plot
   scripts/plot_calibration.py
   
